@@ -258,6 +258,13 @@ namespace Jackett.Common.Services
                     _logger.Info("Applying fix for FlareSolverr 3.6.6 missing proxy_extension directory.");
                     Directory.CreateDirectory(proxyExtensionDir);
                 }
+
+                // FlareSolverr's own Chrome detection only looks under the current account's
+                // %PROGRAMFILES%/%LOCALAPPDATA%\Google\Chrome paths, so a per-user or custom
+                // Chromium is invisible when Jackett runs as a Windows service (LocalSystem).
+                // FlareSolverr checks a bundled browser at _internal/flaresolverr/chrome/chrome.exe
+                // FIRST, so we point that at a Chrome/Chromium we resolve ourselves.
+                EnsureBrowserLinked();
             }
 
             var startInfo = new ProcessStartInfo
@@ -305,6 +312,120 @@ namespace Jackett.Common.Services
                     _lastLogs.Remove(0, _lastLogs.Length - 4000);
                 _lastLogs.AppendLine(line);
             }
+        }
+
+        /// <summary>
+        /// Links a resolved Chrome/Chromium into the location FlareSolverr probes first
+        /// (<c>_internal/flaresolverr/chrome/chrome.exe</c>) using a directory junction, so the
+        /// bundled browser wins over FlareSolverr's account-scoped auto-detection. No-op if we
+        /// can't resolve a browser (FlareSolverr then falls back to its own detection).
+        /// </summary>
+        private void EnsureBrowserLinked()
+        {
+            try
+            {
+                var linkDir = Path.Combine(Path.GetDirectoryName(_executablePath), "_internal", "flaresolverr", "chrome");
+                var linkedExe = Path.Combine(linkDir, "chrome.exe");
+
+                // Already linked (or a real bundled chrome is present) -> nothing to do.
+                if (File.Exists(linkedExe))
+                {
+                    _logger.Debug($"FlareSolverr browser already linked at {linkDir}");
+                    return;
+                }
+
+                var browserExe = ResolveBrowserExecutable();
+                if (string.IsNullOrEmpty(browserExe))
+                {
+                    _logger.Info("Jackett could not resolve a Chrome/Chromium binary; FlareSolverr will use its own detection. " +
+                                 "If it reports 'Chrome not installed', set JACKETT_CHROME_PATH or create a chrome_path.txt (see logs).");
+                    return;
+                }
+
+                var browserDir = Path.GetDirectoryName(browserExe);
+                if (!File.Exists(Path.Combine(browserDir, "chrome.exe")))
+                {
+                    _logger.Warn($"Resolved browser '{browserExe}' but its folder has no chrome.exe; skipping browser link.");
+                    return;
+                }
+
+                // Remove a stale/dangling link directory if one exists.
+                if (Directory.Exists(linkDir))
+                {
+                    try { Directory.Delete(linkDir, false); } catch { }
+                }
+
+                _logger.Info($"Linking FlareSolverr browser -> {browserDir}");
+                var psi = new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{linkDir}\" \"{browserDir}\"")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using (var proc = Process.Start(psi))
+                {
+                    proc.WaitForExit(5000);
+                }
+
+                if (!File.Exists(linkedExe))
+                    _logger.Warn("Failed to create the FlareSolverr browser junction; FlareSolverr will fall back to its own detection.");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn(ex, "Could not link a browser for FlareSolverr; falling back to its own detection.");
+            }
+        }
+
+        /// <summary>
+        /// Resolves a Chrome/Chromium executable, in priority order:
+        /// 1. JACKETT_CHROME_PATH environment variable (full path to chrome.exe);
+        /// 2. a chrome_path.txt file in the FlareSolverr app-data folder (single line, full path);
+        /// 3. standard Chrome/Chromium install directories (machine-wide paths resolve even under a service).
+        /// </summary>
+        private string ResolveBrowserExecutable()
+        {
+            var env = Environment.GetEnvironmentVariable("JACKETT_CHROME_PATH");
+            if (!string.IsNullOrWhiteSpace(env) && File.Exists(env.Trim('"')))
+                return env.Trim('"');
+
+            try
+            {
+                var overrideFile = Path.Combine(_configurationService.GetAppDataFolder(), "FlareSolverr", "chrome_path.txt");
+                if (File.Exists(overrideFile))
+                {
+                    var p = File.ReadAllText(overrideFile).Trim().Trim('"');
+                    if (!string.IsNullOrWhiteSpace(p) && File.Exists(p))
+                        return p;
+                }
+            }
+            catch { }
+
+            var roots = new[]
+            {
+                Environment.GetEnvironmentVariable("PROGRAMFILES"),
+                Environment.GetEnvironmentVariable("PROGRAMFILES(X86)"),
+                Environment.GetEnvironmentVariable("PROGRAMW6432"),
+                Environment.GetEnvironmentVariable("LOCALAPPDATA")
+            };
+            var relPaths = new[]
+            {
+                @"Google\Chrome\Application\chrome.exe",
+                @"Chromium\Application\chrome.exe"
+            };
+            foreach (var root in roots)
+            {
+                if (string.IsNullOrEmpty(root))
+                    continue;
+                foreach (var rel in relPaths)
+                {
+                    var candidate = Path.Combine(root, rel);
+                    if (File.Exists(candidate))
+                        return candidate;
+                }
+            }
+
+            return null;
         }
 
         private void StopProcess()
