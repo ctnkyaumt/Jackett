@@ -277,6 +277,33 @@ namespace Jackett.Common.Services
                 WorkingDirectory = Path.GetDirectoryName(_executablePath)
             };
 
+            // The child inherits Jackett's environment. If Jackett was launched with a stripped/wrong
+            // environment (e.g. bad LOCALAPPDATA), FlareSolverr's own Chrome detection and
+            // undetected_chromedriver's driver cache break. Rewrite the profile-derived vars from the
+            // known-folder API so the child always gets correct paths.
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                void SetFolder(string key, Environment.SpecialFolder folder)
+                {
+                    var value = Environment.GetFolderPath(folder);
+                    if (!string.IsNullOrEmpty(value))
+                        startInfo.EnvironmentVariables[key] = value;
+                }
+
+                SetFolder("LOCALAPPDATA", Environment.SpecialFolder.LocalApplicationData);
+                SetFolder("APPDATA", Environment.SpecialFolder.ApplicationData);
+                SetFolder("USERPROFILE", Environment.SpecialFolder.UserProfile);
+
+                var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (!string.IsNullOrEmpty(localAppData))
+                {
+                    var temp = Path.Combine(localAppData, "Temp");
+                    try { Directory.CreateDirectory(temp); } catch { }
+                    startInfo.EnvironmentVariables["TEMP"] = temp;
+                    startInfo.EnvironmentVariables["TMP"] = temp;
+                }
+            }
+
             _process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
 
             lock (_lastLogs)
@@ -380,8 +407,11 @@ namespace Jackett.Common.Services
         /// <summary>
         /// Resolves a Chrome/Chromium executable, in priority order:
         /// 1. JACKETT_CHROME_PATH environment variable (full path to chrome.exe);
-        /// 2. a chrome_path.txt file in the FlareSolverr app-data folder (single line, full path);
-        /// 3. standard Chrome/Chromium install directories (machine-wide paths resolve even under a service).
+        /// 2. a chrome_path.txt override file in the Jackett app-data folder (single line, full path);
+        /// 3. standard Chrome/Chromium install directories.
+        /// Folder roots come from <see cref="Environment.GetFolderPath(Environment.SpecialFolder)"/>
+        /// (the profile/known-folder API) rather than %LOCALAPPDATA%/%PROGRAMFILES% env vars, because
+        /// Jackett can be launched with a stripped environment where those vars are wrong/missing.
         /// </summary>
         private string ResolveBrowserExecutable()
         {
@@ -389,24 +419,29 @@ namespace Jackett.Common.Services
             if (!string.IsNullOrWhiteSpace(env) && File.Exists(env.Trim('"')))
                 return env.Trim('"');
 
-            try
+            foreach (var overrideFile in new[]
+                     {
+                         Path.Combine(_configurationService.GetAppDataFolder(), "chrome_path.txt"),
+                         Path.Combine(_configurationService.GetAppDataFolder(), "FlareSolverr", "chrome_path.txt")
+                     })
             {
-                var overrideFile = Path.Combine(_configurationService.GetAppDataFolder(), "FlareSolverr", "chrome_path.txt");
-                if (File.Exists(overrideFile))
+                try
                 {
-                    var p = File.ReadAllText(overrideFile).Trim().Trim('"');
-                    if (!string.IsNullOrWhiteSpace(p) && File.Exists(p))
-                        return p;
+                    if (File.Exists(overrideFile))
+                    {
+                        var p = File.ReadAllText(overrideFile).Trim().Trim('"');
+                        if (!string.IsNullOrWhiteSpace(p) && File.Exists(p))
+                            return p;
+                    }
                 }
+                catch { }
             }
-            catch { }
 
             var roots = new[]
             {
-                Environment.GetEnvironmentVariable("PROGRAMFILES"),
-                Environment.GetEnvironmentVariable("PROGRAMFILES(X86)"),
-                Environment.GetEnvironmentVariable("PROGRAMW6432"),
-                Environment.GetEnvironmentVariable("LOCALAPPDATA")
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)
             };
             var relPaths = new[]
             {
