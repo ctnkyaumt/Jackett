@@ -249,21 +249,18 @@ namespace Jackett.Common.Services
 
             _logger.Info($"Starting FlareSolverr process: {_executablePath}");
 
-            // Fix FlareSolverr 3.6.6 Windows bug: a missing proxy_extension directory crashes the process.
+            // Fix FlareSolverr 3.6.6 Windows bug: it always loads its proxy_extension into Chrome
+            // (--load-extension), but the Windows build ships that folder EMPTY. Chrome then fails
+            // to load the extension ("manifest missing" dialog) and the browser hangs / challenge
+            // times out. Write the real extension files if they're absent.
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 var proxyExtensionDir = Path.Combine(Path.GetDirectoryName(_executablePath), "_internal", "flaresolverr", "proxy_extension");
-                if (!Directory.Exists(proxyExtensionDir))
-                {
-                    _logger.Info("Applying fix for FlareSolverr 3.6.6 missing proxy_extension directory.");
-                    Directory.CreateDirectory(proxyExtensionDir);
-                }
+                EnsureProxyExtensionFiles(proxyExtensionDir);
 
-                // FlareSolverr's own Chrome detection only looks under the current account's
-                // %PROGRAMFILES%/%LOCALAPPDATA%\Google\Chrome paths, so a per-user or custom
-                // Chromium is invisible when Jackett runs as a Windows service (LocalSystem).
                 // FlareSolverr checks a bundled browser at _internal/flaresolverr/chrome/chrome.exe
-                // FIRST, so we point that at a Chrome/Chromium we resolve ourselves.
+                // FIRST, before its own detection. This lets an explicit override (JACKETT_CHROME_PATH
+                // / chrome_path.txt) point FlareSolverr at a specific Chrome/Chromium build.
                 EnsureBrowserLinked();
             }
 
@@ -462,6 +459,189 @@ namespace Jackett.Common.Services
 
             return null;
         }
+
+        /// <summary>
+        /// Ensures the FlareSolverr proxy_extension directory contains its files. FlareSolverr copies
+        /// this folder into a temp dir and loads it as a Chrome extension on every request; the Windows
+        /// build ships it empty, which makes Chrome fail to load the extension and hang. Only writes when
+        /// manifest.json is missing, so a future build that bundles the files properly is left untouched.
+        /// </summary>
+        private void EnsureProxyExtensionFiles(string dir)
+        {
+            try
+            {
+                Directory.CreateDirectory(dir);
+                var manifestPath = Path.Combine(dir, "manifest.json");
+                if (File.Exists(manifestPath))
+                    return;
+
+                _logger.Info("Writing FlareSolverr proxy_extension files (missing in the Windows build).");
+                File.WriteAllText(manifestPath, ProxyExtensionManifest);
+                File.WriteAllText(Path.Combine(dir, "background.js"), ProxyExtensionBackground);
+                File.WriteAllText(Path.Combine(dir, "proxy.html"), ProxyExtensionProxyHtml);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn(ex, "Failed to write FlareSolverr proxy_extension files.");
+            }
+        }
+
+        // Verbatim copies of FlareSolverr 3.6.6's src/flaresolverr/proxy_extension/* files.
+        private const string ProxyExtensionManifest = @"{
+    ""version"": ""1.0.0"",
+    ""manifest_version"": 3,
+    ""name"": ""FlareSolverr Proxy Manager"",
+    ""permissions"": [
+        ""proxy"",
+        ""storage"",
+        ""webRequest"",
+        ""webRequestAuthProvider""
+    ],
+    ""host_permissions"": [
+        ""<all_urls>""
+    ],
+    ""background"": {
+        ""service_worker"": ""background.js""
+    }
+}
+";
+
+        private const string ProxyExtensionBackground = @"// Background service worker to manage Chrome proxy settings dynamically.
+// Supports both authenticated and unauthenticated proxies via chrome.proxy API.
+
+var FLARESOLVERR_PROXY_KEY = ""flaresolverrProxy"";
+var currentAuth = null;
+
+/**
+ * Apply proxy settings to Chrome.
+ * @param {Object} proxyConfig - The proxy configuration object.
+ */
+function applyProxyConfig(proxyConfig, callback) {
+    chrome.proxy.settings.set(
+        { value: proxyConfig, scope: ""regular"" },
+        function() {
+            if (chrome.runtime.lastError) {
+                callback({ success: false, error: chrome.runtime.lastError.message });
+            } else {
+                callback({ success: true });
+            }
+        }
+    );
+}
+
+/**
+ * Restore proxy config from storage on startup.
+ */
+function restoreProxyFromStorage() {
+    chrome.storage.local.get([FLARESOLVERR_PROXY_KEY, ""flaresolverrProxyAuth""], function(result) {
+        var config = result[FLARESOLVERR_PROXY_KEY];
+        currentAuth = result.flaresolverrProxyAuth || null;
+        if (config) {
+            applyProxyConfig(config, function() {});
+        } else {
+            // Default to direct (no proxy)
+            applyProxyConfig({ mode: ""direct"" }, function() {});
+        }
+    });
+}
+
+// Restore on startup
+restoreProxyFromStorage();
+
+// Handle messages from content script or extension pages
+chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+    if (!request || !request.mode) {
+        sendResponse({ success: false, error: ""Missing mode"" });
+        return false;
+    }
+
+    try {
+        if (request.mode === ""direct"") {
+            applyProxyConfig({ mode: ""direct"" }, function(result) {
+                if (result.success) {
+                    currentAuth = null;
+                    chrome.storage.local.remove([FLARESOLVERR_PROXY_KEY]);
+                    chrome.storage.local.remove([""flaresolverrProxyAuth""]);
+                }
+                sendResponse(result);
+            });
+        } else if (request.mode === ""fixed_servers"") {
+            var proxyConfig = {
+                mode: ""fixed_servers"",
+                rules: request.rules
+            };
+            var newAuth = (request.auth && request.auth.username) ? request.auth : null;
+            applyProxyConfig(proxyConfig, function(result) {
+                if (result.success) {
+                    currentAuth = newAuth;
+                    chrome.storage.local.set({ [FLARESOLVERR_PROXY_KEY]: proxyConfig });
+                    if (currentAuth) {
+                        chrome.storage.local.set({ flaresolverrProxyAuth: currentAuth });
+                    } else {
+                        chrome.storage.local.remove([""flaresolverrProxyAuth""]);
+                    }
+                }
+                sendResponse(result);
+            });
+        } else {
+            sendResponse({ success: false, error: ""Unknown mode: "" + request.mode });
+        }
+    } catch (err) {
+        sendResponse({ success: false, error: err.message });
+    }
+    return true;
+});
+
+// Handle proxy authentication
+chrome.webRequest.onAuthRequired.addListener(
+    function(details, callbackFn) {
+        // currentAuth is updated synchronously in onMessage so there is never
+        // a race between ACK and the first onAuthRequired event.
+        if (currentAuth && currentAuth.username) {
+            callbackFn({
+                authCredentials: {
+                    username: currentAuth.username,
+                    password: currentAuth.password || """"
+                }
+            });
+            return;
+        }
+        // Fallback to storage (e.g. service worker restart).
+        chrome.storage.local.get([""flaresolverrProxyAuth""], function(result) {
+            var auth = result.flaresolverrProxyAuth;
+            if (auth && auth.username) {
+                currentAuth = auth;
+                callbackFn({
+                    authCredentials: {
+                        username: auth.username,
+                        password: auth.password || """"
+                    }
+                });
+            } else {
+                callbackFn();
+            }
+        });
+    },
+    { urls: [""<all_urls>""] },
+    [""asyncBlocking""]
+);
+";
+
+        private const string ProxyExtensionProxyHtml = @"<!DOCTYPE html>
+<html>
+<head>
+    <title>FlareSolverr Proxy Manager</title>
+</head>
+<body>
+<script>
+// Stable extension page used as a command channel for proxy updates.
+// The Python side navigates here and executes scripts that call
+// chrome.runtime.sendMessage directly (extension pages have that API).
+window.__FS_PROXY_RESULT = null;
+</script>
+</body>
+</html>
+";
 
         private void StopProcess()
         {
