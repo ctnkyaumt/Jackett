@@ -32,6 +32,10 @@ namespace Jackett.Common.Services
         // First launch downloads/patches undetected_chromedriver and boots a real Chrome, which can be slow.
         private const int ReadyTimeoutSeconds = 90;
 
+        // Portable Chromium snapshot FlareSolverr's build script bundles (build_package.py). Downloading
+        // it gives a self-contained, headless browser so no system Chrome install is required.
+        private const string ChromiumSnapshotRevision = "1522586";
+
         private static readonly HttpClient _healthClient = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
 
         private readonly Logger _logger;
@@ -41,6 +45,7 @@ namespace Jackett.Common.Services
 
         private Process _process;
         private string _executablePath;
+        private string _bundledChromePath;
         private volatile bool _ready;
         private readonly StringBuilder _lastLogs = new StringBuilder();
 
@@ -107,6 +112,7 @@ namespace Jackett.Common.Services
 
                 _ready = false;
                 await EnsureFlareSolverrDownloaded().ConfigureAwait(false);
+                await EnsureBundledChromiumAsync().ConfigureAwait(false);
                 StartFlareSolverrProcess();
 
                 var deadline = DateTime.UtcNow.AddSeconds(ReadyTimeoutSeconds);
@@ -235,6 +241,66 @@ namespace Jackett.Common.Services
             _logger.Info("FlareSolverr installed successfully.");
         }
 
+        /// <summary>
+        /// Downloads the portable Chromium snapshot FlareSolverr is built against into a persistent
+        /// folder, so FlareSolverr has a self-contained headless browser and needs no system Chrome.
+        /// Once present, <see cref="_bundledChromePath"/> points at it and <see cref="ResolveBrowserExecutable"/>
+        /// prefers it. Best-effort: on failure FlareSolverr falls back to system Chrome detection.
+        /// </summary>
+        private async Task EnsureBundledChromiumAsync()
+        {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                return;
+
+            var installDir = Path.Combine(_configurationService.GetAppDataFolder(), "FlareSolverr");
+            var chromiumDir = Path.Combine(installDir, "chromium");
+            var chromeExe = Path.Combine(chromiumDir, "chrome-win", "chrome.exe");
+
+            if (File.Exists(chromeExe))
+            {
+                _bundledChromePath = chromeExe;
+                return;
+            }
+
+            try
+            {
+                _logger.Info($"Downloading portable Chromium (snapshot {ChromiumSnapshotRevision}, ~290 MB) for FlareSolverr. This is a one-time download...");
+                Directory.CreateDirectory(chromiumDir);
+
+                var url = $"https://commondatastorage.googleapis.com/chromium-browser-snapshots/Win_x64/{ChromiumSnapshotRevision}/chrome-win.zip";
+                var tempZip = Path.Combine(installDir, "chrome-win.zip");
+
+                using (var httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(20) })
+                using (var response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
+                {
+                    response.EnsureSuccessStatusCode();
+                    using (var fileStream = File.Create(tempZip))
+                    using (var httpStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                    {
+                        await httpStream.CopyToAsync(fileStream).ConfigureAwait(false);
+                    }
+                }
+
+                _logger.Info("Extracting portable Chromium...");
+                ZipFile.ExtractToDirectory(tempZip, chromiumDir, true);
+                File.Delete(tempZip);
+
+                if (File.Exists(chromeExe))
+                {
+                    _bundledChromePath = chromeExe;
+                    _logger.Info($"Portable Chromium ready at {chromeExe}");
+                }
+                else
+                {
+                    _logger.Warn("Portable Chromium archive did not contain chrome.exe at the expected path; FlareSolverr will fall back to system Chrome.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn(ex, "Failed to download portable Chromium; FlareSolverr will fall back to system Chrome detection.");
+            }
+        }
+
         private void StartFlareSolverrProcess()
         {
             if (_process != null && !_process.HasExited)
@@ -351,18 +417,13 @@ namespace Jackett.Common.Services
                 var linkDir = Path.Combine(Path.GetDirectoryName(_executablePath), "_internal", "flaresolverr", "chrome");
                 var linkedExe = Path.Combine(linkDir, "chrome.exe");
 
-                // Already linked (or a real bundled chrome is present) -> nothing to do.
-                if (File.Exists(linkedExe))
-                {
-                    _logger.Debug($"FlareSolverr browser already linked at {linkDir}");
-                    return;
-                }
-
                 var browserExe = ResolveBrowserExecutable();
                 if (string.IsNullOrEmpty(browserExe))
                 {
-                    _logger.Info("Jackett could not resolve a Chrome/Chromium binary; FlareSolverr will use its own detection. " +
-                                 "If it reports 'Chrome not installed', set JACKETT_CHROME_PATH or create a chrome_path.txt (see logs).");
+                    // Nothing resolved: leave any existing link so a previous one keeps working.
+                    if (!File.Exists(linkedExe))
+                        _logger.Info("Jackett could not resolve a Chrome/Chromium binary; FlareSolverr will use its own detection. " +
+                                     "If it reports 'Chrome not installed', set JACKETT_CHROME_PATH or create a chrome_path.txt (see logs).");
                     return;
                 }
 
@@ -373,9 +434,16 @@ namespace Jackett.Common.Services
                     return;
                 }
 
-                // Remove a stale/dangling link directory if one exists.
                 if (Directory.Exists(linkDir))
                 {
+                    // Only our own junction gets replaced (so we can re-point it when the resolved
+                    // browser changes). A real directory that already has chrome.exe is left untouched.
+                    var isJunction = (File.GetAttributes(linkDir) & FileAttributes.ReparsePoint) != 0;
+                    if (!isJunction && File.Exists(linkedExe))
+                    {
+                        _logger.Debug($"A real bundled browser already exists at {linkDir}; leaving it.");
+                        return;
+                    }
                     try { Directory.Delete(linkDir, false); } catch { }
                 }
 
@@ -405,7 +473,8 @@ namespace Jackett.Common.Services
         /// Resolves a Chrome/Chromium executable, in priority order:
         /// 1. JACKETT_CHROME_PATH environment variable (full path to chrome.exe);
         /// 2. a chrome_path.txt override file in the Jackett app-data folder (single line, full path);
-        /// 3. standard Chrome/Chromium install directories.
+        /// 3. the portable Chromium we downloaded (<see cref="EnsureBundledChromiumAsync"/>) - the default;
+        /// 4. standard Chrome/Chromium install directories.
         /// Folder roots come from <see cref="Environment.GetFolderPath(Environment.SpecialFolder)"/>
         /// (the profile/known-folder API) rather than %LOCALAPPDATA%/%PROGRAMFILES% env vars, because
         /// Jackett can be launched with a stripped environment where those vars are wrong/missing.
@@ -433,6 +502,9 @@ namespace Jackett.Common.Services
                 }
                 catch { }
             }
+
+            if (!string.IsNullOrEmpty(_bundledChromePath) && File.Exists(_bundledChromePath))
+                return _bundledChromePath;
 
             var roots = new[]
             {
