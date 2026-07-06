@@ -29,6 +29,7 @@ namespace Jackett.Common.Services
         private readonly IProcessService _processService;
         private readonly IConfigurationService _globalConfigService;
         private readonly ServerConfig _serverConfig;
+        private readonly IFlareSolverrManagerService _flareSolverrManagerService;
         private readonly Logger _logger;
 
         private readonly Dictionary<string, IIndexer> _indexers = new Dictionary<string, IIndexer>();
@@ -39,7 +40,7 @@ namespace Jackett.Common.Services
         // (the id is used in the torznab/download/search urls and in the indexer configuration file)
         private Dictionary<string, string> _renamedIndexers = new Dictionary<string, string>();
 
-        public IndexerManagerService(IIndexerConfigurationService config, IProtectionService protectionService, WebClient webClient, Logger l, ICacheService cache, IProcessService processService, IConfigurationService globalConfigService, ServerConfig serverConfig)
+        public IndexerManagerService(IIndexerConfigurationService config, IProtectionService protectionService, WebClient webClient, Logger l, ICacheService cache, IProcessService processService, IConfigurationService globalConfigService, ServerConfig serverConfig, IFlareSolverrManagerService flareSolverrManagerService)
         {
             _configService = config;
             _protectionService = protectionService;
@@ -47,6 +48,7 @@ namespace Jackett.Common.Services
             _processService = processService;
             _globalConfigService = globalConfigService;
             _serverConfig = serverConfig;
+            _flareSolverrManagerService = flareSolverrManagerService;
             _logger = l;
             _cacheService = cache;
         }
@@ -147,7 +149,7 @@ namespace Jackett.Common.Services
                 if (constructor != null)
                 {
                     // create own webClient instance for each indexer (separate cookies stores, etc.)
-                    var indexerWebClientInstance = (WebClient)Activator.CreateInstance(_webClient.GetType(), _processService, _logger, _globalConfigService, _serverConfig);
+                    var indexerWebClientInstance = (WebClient)Activator.CreateInstance(_webClient.GetType(), _processService, _logger, _globalConfigService, _serverConfig, _flareSolverrManagerService);
 
                     var arguments = new object[] { _configService, indexerWebClientInstance, _logger, _protectionService, _cacheService };
                     var indexer = (IIndexer)constructor.Invoke(arguments);
@@ -210,7 +212,7 @@ namespace Jackett.Common.Services
                     try
                     {
                         // create own webClient instance for each indexer (separate cookies stores, etc.)
-                        var indexerWebClientInstance = (WebClient)Activator.CreateInstance(_webClient.GetType(), _processService, _logger, _globalConfigService, _serverConfig);
+                        var indexerWebClientInstance = (WebClient)Activator.CreateInstance(_webClient.GetType(), _processService, _logger, _globalConfigService, _serverConfig, _flareSolverrManagerService);
 
                         IIndexer indexer = new CardigannIndexer(_configService, indexerWebClientInstance, _logger, _protectionService, _cacheService, definition);
                         _configService.Load(indexer);

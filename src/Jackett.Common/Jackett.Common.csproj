@@ -201,6 +201,7 @@
       <Generator>PublicResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
     </EmbeddedResource>
+
   </ItemGroup>
 
   <!-- Save the compiled date so that we know if the user is running an old version of Jackett -->

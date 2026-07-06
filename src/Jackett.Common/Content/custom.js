@@ -1493,6 +1493,18 @@ function bindUIButtons() {
         }
     });
 
+    $('#qbit-sync-button').click(function () {
+        $.post(api.getApiPath("server", "SyncQBitApi"))
+            .done(function () {
+                doNotify("Successfully synced API key to qBittorrent config", "success", "glyphicon glyphicon-ok");
+            })
+            .fail(function (xhr) {
+                var msg = "Unknown error";
+                if (xhr.responseJSON && xhr.responseJSON.error) msg = xhr.responseJSON.error;
+                doNotify("Failed to sync API key to qBittorrent: " + msg, "danger", "glyphicon glyphicon-alert");
+            });
+    });
+
     $('#jackett-add-indexer').click(function () {
         $("#modals").empty();
         displayUnconfiguredIndexersList();

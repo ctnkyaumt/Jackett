@@ -97,6 +97,8 @@ namespace Jackett.Server
                         .PersistKeysToFileSystem(dataProtectionFolder)
                         .SetApplicationName("Jackett");
 
+            
+
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
             var builder = new ContainerBuilder();

@@ -33,7 +33,7 @@ namespace Jackett.Server
         public static void ProcessWindowsSpecificArgs(ConsoleOptions consoleOptions, IProcessService processService, ServerConfig serverConfig, Logger logger)
         {
             IServiceConfigService serviceConfigService = new ServiceConfigService();
-            IServerService serverService = new ServerService(null, processService, null, null, logger, null, null, null, serverConfig);
+            IServerService serverService = new ServerService(null, processService, null, null, logger, null, null, null, serverConfig, null);
 
             /*  ======     Actions    =====  */
 
@@ -87,7 +87,7 @@ namespace Jackett.Server
 
         public static void ProcessConsoleOverrides(ConsoleOptions consoleOptions, IProcessService processService, ServerConfig serverConfig, IConfigurationService configurationService, Logger logger)
         {
-            IServerService serverService = new ServerService(null, processService, null, null, logger, null, null, null, serverConfig);
+            IServerService serverService = new ServerService(null, processService, null, null, logger, null, null, null, serverConfig, null);
 
             // Override port
             if (consoleOptions.Port != 0)

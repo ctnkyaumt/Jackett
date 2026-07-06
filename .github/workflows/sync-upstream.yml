@@ -1,0 +1,110 @@
+name: Sync Upstream and Release
+
+on:
+  schedule:
+    - cron: '0 0 */14 * *' # Every 14 days
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create a GitHub Release? (If false, saves as artifacts)'
+        type: boolean
+        default: true
+      version_number:
+        description: 'Manual Version Number (e.g., 2). Leave empty for auto-increment.'
+        type: string
+        required: false
+
+jobs:
+  sync-and-build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync with upstream Jackett and Bump Version
+        run: |
+          git remote add upstream https://github.com/Jackett/Jackett.git
+          git fetch upstream
+          # We merge upstream/master. Any conflicts will cause the workflow to fail and require manual intervention.
+          git merge upstream/master --allow-unrelated-histories -m "Auto-merge upstream Jackett"
+          
+          $inputVersion = "${{ github.event.inputs.version_number }}"
+          if ([string]::IsNullOrWhiteSpace($inputVersion)) {
+              if (Test-Path VERSION.txt) {
+                  $currentVersion = [int]((Get-Content VERSION.txt).Trim())
+                  $newVersion = $currentVersion + 1
+              } else {
+                  $newVersion = 1
+              }
+          } else {
+              $newVersion = [int]$inputVersion
+          }
+          Set-Content -Path VERSION.txt -Value $newVersion
+          
+          echo "RELEASE_VERSION=$newVersion" >> $env:GITHUB_ENV
+          
+          git add VERSION.txt
+          $status = git status --porcelain
+          if (-not [string]::IsNullOrWhiteSpace($status)) {
+              git commit -m "Bump version to v$newVersion"
+              git push origin master
+          } else {
+              git push origin master
+          }
+
+      # NOTE REGARDING FLARESOLVERR:
+      # Because the FlareSolverr logic was manually translated into native C# within Jackett, 
+      # this workflow CANNOT automatically pull Python commits from the FlareSolverr repository 
+      # and translate them into C#. If FlareSolverr updates its evasion logic, you will need 
+      # to manually update NativeFlareSolverrClearanceHandler.cs in this repo.
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build Jackett (win-x64)
+        run: |
+          dotnet publish src/Jackett.Server/Jackett.Server.csproj -c Release -f net9.0 -r win-x64 --self-contained true -o ./publish-win
+          dotnet publish src/Jackett.Tray/Jackett.Tray.csproj -c Release -r win-x64 --self-contained true -o ./publish-win
+          dotnet publish src/Jackett.Service/Jackett.Service.csproj -c Release -r win-x64 --self-contained true -o ./publish-win
+          dotnet publish src/Jackett.Updater/Jackett.Updater.csproj -c Release -f net9.0 -r win-x64 --self-contained true -o ./publish-win
+          Compress-Archive -Path "publish-win\*" -DestinationPath "Jackett.Binaries.Windows.zip"
+
+      - name: Build Installer (Inno Setup)
+        run: |
+          iscc /DMyAppVersion="0.24.${{ env.RELEASE_VERSION }}" /DMySourceFolder="publish-win" /DMyOutputFilename="Jackett.Installer.Windows" Installer.iss
+
+      - name: Upload Zip Artifact
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'false' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jackett-Binaries-v${{ env.RELEASE_VERSION }}
+          path: Jackett.Binaries.Windows.zip
+
+      - name: Upload Installer Artifact
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'false' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jackett-Installer-v${{ env.RELEASE_VERSION }}
+          path: Output/Jackett.Installer.Windows.exe
+
+      - name: Create Release
+        if: ${{ github.event_name == 'schedule' || github.event.inputs.create_release != 'false' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: "v${{ env.RELEASE_VERSION }}"
+          files: |
+            Jackett.Binaries.Windows.zip
+            Output/Jackett.Installer.Windows.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

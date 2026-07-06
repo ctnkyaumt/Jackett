@@ -31,9 +31,10 @@ namespace Jackett.Server.Services
         private readonly IUpdateService updater;
         private readonly ServerConfig config;
         private readonly IProtectionService _protectionService;
+        private readonly IFlareSolverrManagerService _flareSolverrManagerService;
         private bool isDotNetCoreCapable;
 
-        public ServerService(IIndexerManagerService i, IProcessService p, ISerializeService s, IConfigurationService c, Logger l, Common.Utils.Clients.WebClient w, IUpdateService u, IProtectionService protectionService, ServerConfig serverConfig)
+        public ServerService(IIndexerManagerService i, IProcessService p, ISerializeService s, IConfigurationService c, Logger l, Common.Utils.Clients.WebClient w, IUpdateService u, IProtectionService protectionService, ServerConfig serverConfig, IFlareSolverrManagerService f)
         {
             indexerService = i;
             processService = p;
@@ -44,6 +45,7 @@ namespace Jackett.Server.Services
             updater = u;
             config = serverConfig;
             _protectionService = protectionService;
+            _flareSolverrManagerService = f;
         }
 
         public List<string> notices { get; } = new List<string>();
@@ -346,7 +348,11 @@ namespace Jackett.Server.Services
             updater.CheckUpdaterLock();
         }
 
-        public void Start() => updater.StartUpdateChecker();
+        public void Start()
+        {
+            updater.StartUpdateChecker();
+            _flareSolverrManagerService?.Start();
+        }
 
         public void ReserveUrls(bool doInstall = true)
         {

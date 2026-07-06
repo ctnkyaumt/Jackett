@@ -24,13 +24,15 @@ namespace Jackett.Common.Utils.Clients
         private ClearanceHandler clearanceHandlr;
         private HttpClientHandler clientHandlr;
         private HttpClient client;
+        private readonly IFlareSolverrManagerService _flareSolverrManagerService;
 
-        public HttpWebClient2(IProcessService p, Logger l, IConfigurationService c, ServerConfig sc)
+        public HttpWebClient2(IProcessService p, Logger l, IConfigurationService c, ServerConfig sc, IFlareSolverrManagerService flareSolverrManagerService)
             : base(p: p,
                    l: l,
                    c: c,
                    sc: sc)
         {
+            _flareSolverrManagerService = flareSolverrManagerService;
             cookies = new CookieContainer
             {
                 PerDomainCapacity = 100 // By default, only 20 cookies are allowed per domain
@@ -106,6 +108,8 @@ namespace Jackett.Common.Utils.Clients
 
         protected override async Task<WebResult> Run(WebRequest webRequest)
         {
+            await _flareSolverrManagerService.EnsureReadyAsync();
+            
             var request = new HttpRequestMessage();
             request.Headers.ExpectContinue = false;
             request.RequestUri = new Uri(webRequest.Url);

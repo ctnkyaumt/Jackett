@@ -58,6 +58,7 @@ ErrorCode: Integer;
 begin
   ShellExec('open', 'taskkill.exe', '/f /im {#MyAppExeName}', '', SW_HIDE, ewNoWait, ErrorCode);
   ShellExec('open', 'taskkill.exe', '/f /im JackettConsole.exe', '', SW_HIDE, ewNoWait, ErrorCode);
+  ShellExec('open', 'taskkill.exe', '/f /im flaresolverr.exe', '', SW_HIDE, ewNoWait, ErrorCode);
 end;
 
 [Run]
@@ -71,5 +72,9 @@ Filename: "{commonappdata}\Jackett\{#MyAppExeName}"; Description: "{cm:LaunchPro
 Filename: "{commonappdata}\Jackett\JackettConsole.exe"; Parameters: "--Uninstall"; Flags: waituntilterminated skipifdoesntexist runhidden
 Filename: "{sys}\taskkill.exe"; Parameters: "/f /im {#MyAppExeName}"; Flags: waituntilterminated skipifdoesntexist runhidden
 Filename: "{sys}\taskkill.exe"; Parameters: "/f /im JackettConsole.exe"; Flags: waituntilterminated skipifdoesntexist runhidden
+Filename: "{sys}\taskkill.exe"; Parameters: "/f /im flaresolverr.exe"; Flags: waituntilterminated skipifdoesntexist runhidden
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{commonappdata}\Jackett\FlareSolverr"
 
 

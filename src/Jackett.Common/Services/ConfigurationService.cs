@@ -296,6 +296,12 @@ namespace Jackett.Common.Services
                 SaveConfig(config);
             }
 
+            if (string.IsNullOrEmpty(config.FlareSolverrUrl) || config.FlareSolverrUrl != "http://127.0.0.1:8191")
+            {
+                config.FlareSolverrUrl = "http://127.0.0.1:8191";
+                SaveConfig(config);
+            }
+
             config.ConfigChanged();
             return config;
         }

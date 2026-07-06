@@ -60,7 +60,51 @@ namespace Jackett.Server.Controllers
                 configService.SaveConfig(serverConfig);
             }
 
-            return new NoContentResult();
+            return Json(new { result = "success" });
+        }
+
+        [HttpPost]
+        public IActionResult SyncQBitApi()
+        {
+            try
+            {
+                var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                var jackettJsonPath = Path.Combine(appData, "qBittorrent", "nova3", "engines", "jackett.json");
+                
+                if (!System.IO.File.Exists(jackettJsonPath))
+                {
+                    return NotFound(new { result = "error", error = $"qBittorrent Jackett engine config not found at {jackettJsonPath}" });
+                }
+
+                var lines = System.IO.File.ReadAllLines(jackettJsonPath);
+                bool updated = false;
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    if (lines[i].Contains("\"api_key\""))
+                    {
+                        var parts = lines[i].Split(new[] { ':' }, 2);
+                        if (parts.Length == 2)
+                        {
+                            var trailingComma = lines[i].TrimEnd().EndsWith(",") ? "," : "";
+                            lines[i] = $"{parts[0]}: \"{serverConfig.APIKey}\"{trailingComma}";
+                            updated = true;
+                        }
+                    }
+                }
+                
+                if (updated)
+                {
+                    System.IO.File.WriteAllLines(jackettJsonPath, lines);
+                    return Json(new { result = "success" });
+                }
+                
+                return BadRequest(new { result = "error", error = "Could not find api_key line in jackett.json" });
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "Failed to sync qBittorrent API key");
+                return BadRequest(new { result = "error", error = ex.Message });
+            }
         }
 
         [HttpPost]
