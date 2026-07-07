@@ -34,8 +34,27 @@ jobs:
         run: |
           git remote add upstream https://github.com/Jackett/Jackett.git
           git fetch upstream
-          # We merge upstream/master. Any conflicts will cause the workflow to fail and require manual intervention.
-          git merge upstream/master --allow-unrelated-histories -m "Auto-merge upstream Jackett"
+
+          # This fork replaced FlareSolverr with an embedded nodriver solver. A git merge cannot skip
+          # individual upstream commits by topic, so instead we make sure upstream can never override
+          # the fork's changes: merge preferring OURS on any conflict, then hard-restore the files that
+          # are entirely fork-owned (nodriver solver, fork README, this workflow). This effectively
+          # drops any upstream FlareSolverr-related changes to those files while still pulling in
+          # everything else (indexer updates, fixes, etc.).
+          $preMerge = git rev-parse HEAD
+          git merge -X ours upstream/master --allow-unrelated-histories --no-edit -m "Auto-merge upstream Jackett"
+
+          $forkOwned = @(
+            "README.md",
+            "nodriver",
+            ".github/workflows/sync-upstream.yml",
+            "src/Jackett.Common/Services/NodriverManagerService.cs"
+          )
+          git checkout $preMerge -- $forkOwned
+          $status = git status --porcelain
+          if (-not [string]::IsNullOrWhiteSpace($status)) {
+              git commit -am "Keep fork-owned files (nodriver solver) after upstream merge"
+          }
           
           $inputVersion = "${{ github.event.inputs.version_number }}"
           if ([string]::IsNullOrWhiteSpace($inputVersion)) {
@@ -82,7 +101,7 @@ jobs:
       # Build the nodriver-based Cloudflare solver (embeddable Python + nodriver + aiohttp) and
       # ship it inside the Jackett binaries so it installs alongside Jackett.
       - name: Build nodriver solver bundle
-        run: ./flaresolverr-nodriver/build.ps1 -OutDir "publish-win/nodriver-flaresolverr"
+        run: ./nodriver/build.ps1 -OutDir "publish-win/nodriver"
 
       - name: Package Jackett binaries
         run: Compress-Archive -Path "publish-win\*" -DestinationPath "Jackett.Binaries.Windows.zip"

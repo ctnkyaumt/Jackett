@@ -14,7 +14,7 @@ using NLog;
 
 namespace Jackett.Common.Services.Interfaces
 {
-    public interface IFlareSolverrManagerService : IDisposable
+    public interface INodriverManagerService : IDisposable
     {
         bool IsRunning { get; }
         string FlareSolverrUrl { get; }
@@ -33,10 +33,10 @@ namespace Jackett.Common.Services
     /// FlareSolverr's undetected-chromedriver is detected on when running on Windows.
     ///
     /// The solver is a small Python service (nd_service.py) shipped alongside Jackett as an
-    /// embeddable-Python bundle in the "nodriver-flaresolverr" folder. It needs a Chromium, which
+    /// embeddable-Python bundle in the "nodriver" folder. It needs a Chromium, which
     /// is downloaded once at runtime (the browser is too large to ship in the installer).
     /// </summary>
-    public class FlareSolverrManagerService : IFlareSolverrManagerService
+    public class NodriverManagerService : INodriverManagerService
     {
         // First launch downloads Chromium (~290 MB) and boots a browser, which can be slow.
         private const int ReadyTimeoutSeconds = 120;
@@ -59,7 +59,7 @@ namespace Jackett.Common.Services
         public bool IsRunning => _process != null && !_process.HasExited;
         public string FlareSolverrUrl => "http://127.0.0.1:8191";
 
-        public FlareSolverrManagerService(IConfigurationService configurationService, ServerConfig serverConfig)
+        public NodriverManagerService(IConfigurationService configurationService, ServerConfig serverConfig)
         {
             _logger = LogManager.GetCurrentClassLogger();
             _configurationService = configurationService;
@@ -178,12 +178,12 @@ namespace Jackett.Common.Services
             catch { return -1; }
         }
 
-        private string InstallDir => Path.Combine(_configurationService.GetAppDataFolder(), "FlareSolverr");
+        private string InstallDir => Path.Combine(_configurationService.GetAppDataFolder(), "nodriver");
 
         /// <summary>Absolute path to the shipped nodriver bundle folder (next to the Jackett binaries).</summary>
         private string BundleDir => Path.Combine(
             Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? AppContext.BaseDirectory,
-            "nodriver-flaresolverr");
+            "nodriver");
 
         /// <summary>
         /// Ensures a Chromium is present for nodriver to drive. Downloads the portable snapshot once

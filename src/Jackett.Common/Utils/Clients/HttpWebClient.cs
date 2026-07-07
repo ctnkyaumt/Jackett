@@ -20,15 +20,15 @@ namespace Jackett.Common.Utils.Clients
     // TODO: Merge with HttpWebClient2 or remove when we drop support for Mono 5.x
     public class HttpWebClient : WebClient
     {
-        private readonly IFlareSolverrManagerService _flareSolverrManagerService;
+        private readonly INodriverManagerService _nodriverManagerService;
 
-        public HttpWebClient(IProcessService p, Logger l, IConfigurationService c, ServerConfig sc, IFlareSolverrManagerService flareSolverrManagerService)
+        public HttpWebClient(IProcessService p, Logger l, IConfigurationService c, ServerConfig sc, INodriverManagerService nodriverManagerService)
             : base(p: p,
                    l: l,
                    c: c,
                    sc: sc)
         {
-            _flareSolverrManagerService = flareSolverrManagerService;
+            _nodriverManagerService = nodriverManagerService;
         }
 
         [DebuggerNonUserCode] // avoid "Exception User-Unhandled" Visual Studio messages
@@ -61,7 +61,7 @@ namespace Jackett.Common.Utils.Clients
 
         protected override async Task<WebResult> Run(WebRequest webRequest)
         {
-            await _flareSolverrManagerService.EnsureReadyAsync();
+            await _nodriverManagerService.EnsureReadyAsync();
 
             var cookies = new CookieContainer
             {

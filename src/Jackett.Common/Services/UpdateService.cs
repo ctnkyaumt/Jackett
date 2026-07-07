@@ -33,13 +33,13 @@ namespace Jackett.Common.Services
         private readonly IServiceConfigService windowsService;
         private readonly IFilePermissionService filePermissionService;
         private readonly ServerConfig serverConfig;
-        private readonly IFlareSolverrManagerService flareSolverrManager;
+        private readonly INodriverManagerService nodriverManager;
         private bool forceUpdateCheck; // false by default
         private Variants.JackettVariant variant;
 
         private static readonly Regex _VersionRegex = new Regex(@"v(?<major>\d+)\.(?<minor>\d+)\.(?<build>\d+)", RegexOptions.Compiled);
 
-        public UpdateService(Logger l, WebClient c, ITrayLockService ls, IServiceConfigService ws, IFilePermissionService fps, ServerConfig sc, IFlareSolverrManagerService fsm)
+        public UpdateService(Logger l, WebClient c, ITrayLockService ls, IServiceConfigService ws, IFilePermissionService fps, ServerConfig sc, INodriverManagerService fsm)
         {
             logger = l;
             client = c;
@@ -47,7 +47,7 @@ namespace Jackett.Common.Services
             windowsService = ws;
             serverConfig = sc;
             filePermissionService = fps;
-            flareSolverrManager = fsm;
+            nodriverManager = fsm;
 
             variant = new Variants().GetVariant();
 
@@ -105,11 +105,11 @@ namespace Jackett.Common.Services
                 return;
             }
 
-            // Update the embedded FlareSolverr first (before any Jackett self-update, which restarts the app).
-            if (flareSolverrManager != null)
+            // Update the embedded nodriver solver first (before any Jackett self-update, which restarts the app).
+            if (nodriverManager != null)
             {
-                try { await flareSolverrManager.CheckForUpdateAsync(); }
-                catch (Exception e) { logger.Warn(e, "FlareSolverr update check failed."); }
+                try { await nodriverManager.CheckForUpdateAsync(); }
+                catch (Exception e) { logger.Warn(e, "nodriver solver update check failed."); }
             }
 
             var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);

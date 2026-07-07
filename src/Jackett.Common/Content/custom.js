@@ -915,19 +915,17 @@ function doErrorNotify(indexerId, errorMessage, errorEvent) {
     var githubRepo = "Jackett/Jackett";
     var githubText = "this indexer";
     var githubTemplate = "?template=bug_report.yml&"
-    if (errorMessage.includes("FlareSolverr")) {
-      githubRepo = "FlareSolverr/FlareSolverr";
-      githubText = "FlareSolverr"
+    // This fork replaces FlareSolverr with an embedded nodriver-based solver, so route
+    // solver errors to this fork rather than the upstream FlareSolverr project.
+    if (errorMessage.includes("FlareSolverr") || errorMessage.includes("nodriver")) {
+      githubRepo = "ctnkyaumt/Jackett";
+      githubText = "the nodriver solver"
     }
     var githubUrl = "https://github.com/" + githubRepo + "/issues/new" + githubTemplate + "title=[" + indexerId + "] (" + errorEvent + ")";
     var indexEnd = 2000 - githubUrl.length; // keep url <= 2k #5104
     var htmlEscapedError = $("<div>").text(errorMessage.substring(0, indexEnd)).html();
     var urlEscapedError = encodeURIComponent(errorMessage.substring(0, indexEnd));
     var link = "<i><a href=\"" + githubUrl + " " + urlEscapedError + "\" target=\"_blank\">Click here to open an issue on GitHub for " + githubText + ".</a><i>";
-    if (errorMessage.includes("FlareSolverr is not configured")) {
-      link = "<i><a href=\"https://github.com/Jackett/Jackett#configuring-flaresolverr\" target=\"_blank\">Instructions to install and configure FlareSolverr.</a><i><br />" +
-        "<i><a href=\"https://github.com/Jackett/Jackett/wiki/Troubleshooting#error-connecting-to-flaresolverr-server\" target=\"_blank\">Troubleshooting frequent errors with FlareSolverr.</a><i>";
-    }
     doNotify("An error occurred while " + errorEvent + " this indexer<br /><b>" + htmlEscapedError + "</b><br />" + link,
       "danger", "glyphicon glyphicon-alert", false);
   } else {
