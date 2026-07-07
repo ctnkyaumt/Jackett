@@ -347,12 +347,38 @@ namespace Jackett.Common.Services
             // Prefer a Chromium that FlareSolverr already ships with (3.7.0+), avoiding a second download.
             if (!string.IsNullOrEmpty(_executablePath))
             {
-                var fsBundled = Path.Combine(Path.GetDirectoryName(_executablePath), "_internal", "chrome", "chrome.exe");
-                if (File.Exists(fsBundled))
+                var exeDir = Path.GetDirectoryName(_executablePath);
+                var nativeChromeDir = Path.Combine(exeDir, "_internal", "flaresolverr", "chrome");
+                var nativeChromeExe = Path.Combine(nativeChromeDir, "chrome.exe");
+                var bundledChromeDir = Path.Combine(exeDir, "_internal", "chrome");
+                var bundledChromeExe = Path.Combine(bundledChromeDir, "chrome.exe");
+
+                // Already at the path FlareSolverr probes natively.
+                if (File.Exists(nativeChromeExe))
                 {
-                    _bundledChromePath = fsBundled;
-                    _logger.Info($"Using FlareSolverr's bundled Chromium at {fsBundled}");
+                    _bundledChromePath = nativeChromeExe;
                     return;
+                }
+
+                // FlareSolverr 3.7.0+ ships a Chromium at _internal/chrome, but its own detection probes
+                // _internal/flaresolverr/chrome. Move it into that path so it's found natively - a plain
+                // filesystem move, which is far more reliable than creating a runtime junction.
+                if (File.Exists(bundledChromeExe))
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(Path.Combine(exeDir, "_internal", "flaresolverr"));
+                        Directory.Move(bundledChromeDir, nativeChromeDir);
+                        _bundledChromePath = nativeChromeExe;
+                        _logger.Info($"Placed FlareSolverr's bundled Chromium at {nativeChromeDir}");
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warn(ex, "Could not move bundled Chromium into place; will try to link it instead.");
+                        _bundledChromePath = bundledChromeExe;
+                        return;
+                    }
                 }
             }
 
@@ -537,6 +563,11 @@ namespace Jackett.Common.Services
                     _logger.Warn($"Resolved browser '{browserExe}' but its folder has no chrome.exe; skipping browser link.");
                     return;
                 }
+
+                // Already at the path FlareSolverr probes (e.g. the bundled Chromium was moved there):
+                // nothing to link.
+                if (string.Equals(Path.GetFullPath(browserDir).TrimEnd('\\'), Path.GetFullPath(linkDir).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                    return;
 
                 if (Directory.Exists(linkDir))
                 {
