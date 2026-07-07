@@ -78,7 +78,14 @@ jobs:
           dotnet publish src/Jackett.Tray/Jackett.Tray.csproj -c Release -r win-x64 --self-contained true -o ./publish-win
           dotnet publish src/Jackett.Service/Jackett.Service.csproj -c Release -r win-x64 --self-contained true -o ./publish-win
           dotnet publish src/Jackett.Updater/Jackett.Updater.csproj -c Release -f net9.0 -r win-x64 --self-contained true -o ./publish-win
-          Compress-Archive -Path "publish-win\*" -DestinationPath "Jackett.Binaries.Windows.zip"
+
+      # Build the nodriver-based Cloudflare solver (embeddable Python + nodriver + aiohttp) and
+      # ship it inside the Jackett binaries so it installs alongside Jackett.
+      - name: Build nodriver solver bundle
+        run: ./flaresolverr-nodriver/build.ps1 -OutDir "publish-win/nodriver-flaresolverr"
+
+      - name: Package Jackett binaries
+        run: Compress-Archive -Path "publish-win\*" -DestinationPath "Jackett.Binaries.Windows.zip"
 
       - name: Build Installer (Inno Setup)
         run: |
