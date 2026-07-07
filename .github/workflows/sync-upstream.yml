@@ -2,7 +2,7 @@ name: Sync Upstream and Release
 
 on:
   schedule:
-    - cron: '0 0 */14 * *' # Every 14 days
+    - cron: '0 0 */2 * *' # Every 2 days
   workflow_dispatch:
     inputs:
       create_release:

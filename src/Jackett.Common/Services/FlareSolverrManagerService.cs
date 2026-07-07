@@ -22,6 +22,7 @@ namespace Jackett.Common.Services.Interfaces
         void Start();
         void Stop();
         Task EnsureReadyAsync();
+        Task CheckForUpdateAsync();
     }
 }
 
@@ -196,6 +197,7 @@ namespace Jackett.Common.Services
 
             var response = await httpClient.GetStringAsync("https://api.github.com/repos/smeinecke/FlareSolverr/releases/latest");
             var release = JObject.Parse(response);
+            var releaseTag = release["tag_name"]?.ToString();
 
             string targetAssetName = isWindows ? "flaresolverr_windows_x64.zip" : "flaresolverr_linux_x64.tar.gz";
             var asset = release["assets"]?.FirstOrDefault(a => a["name"]?.ToString() == targetAssetName);
@@ -238,13 +240,103 @@ namespace Jackett.Common.Services
                 Process.Start(new ProcessStartInfo("chmod", $"+x {_executablePath}") { UseShellExecute = false })?.WaitForExit();
             }
 
-            _logger.Info("FlareSolverr installed successfully.");
+            if (!string.IsNullOrEmpty(releaseTag))
+            {
+                try { File.WriteAllText(Path.Combine(installDir, "fs-version.txt"), releaseTag); } catch { }
+            }
+
+            _logger.Info($"FlareSolverr {releaseTag} installed successfully.");
+        }
+
+        private string InstallDir => Path.Combine(_configurationService.GetAppDataFolder(), "FlareSolverr");
+
+        private string ReadInstalledFlareSolverrVersion()
+        {
+            try
+            {
+                var marker = Path.Combine(InstallDir, "fs-version.txt");
+                return File.Exists(marker) ? File.ReadAllText(marker).Trim() : null;
+            }
+            catch { return null; }
         }
 
         /// <summary>
-        /// Downloads the portable Chromium snapshot FlareSolverr is built against into a persistent
-        /// folder, so FlareSolverr has a self-contained headless browser and needs no system Chrome.
-        /// Once present, <see cref="_bundledChromePath"/> points at it and <see cref="ResolveBrowserExecutable"/>
+        /// Checks smeinecke/FlareSolverr for a newer release than the installed one and, if found,
+        /// stops FlareSolverr, removes the old install, and re-downloads + restarts it. Called from the
+        /// Jackett "Check for updates" flow so one button updates both Jackett and FlareSolverr.
+        /// </summary>
+        public async Task CheckForUpdateAsync()
+        {
+            try
+            {
+                using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+                httpClient.DefaultRequestHeaders.Add("User-Agent", "Jackett-FlareSolverrManager");
+                var response = await httpClient.GetStringAsync("https://api.github.com/repos/smeinecke/FlareSolverr/releases/latest").ConfigureAwait(false);
+                var latestTag = JObject.Parse(response)["tag_name"]?.ToString();
+                var installedTag = ReadInstalledFlareSolverrVersion();
+
+                if (string.IsNullOrEmpty(latestTag) || string.IsNullOrEmpty(installedTag))
+                {
+                    _logger.Debug($"FlareSolverr update check skipped (installed='{installedTag}', latest='{latestTag}').");
+                    return;
+                }
+                if (latestTag == installedTag)
+                {
+                    _logger.Info($"FlareSolverr is up to date ({installedTag}).");
+                    return;
+                }
+
+                _logger.Info($"FlareSolverr update available: {installedTag} -> {latestTag}. Updating...");
+                await _startLock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    StopProcess();
+                    // Give Windows a moment to release file handles before deleting.
+                    await Task.Delay(1500).ConfigureAwait(false);
+                    var fsFolder = Path.Combine(InstallDir, "flaresolverr");
+                    SafeDeleteDirectory(fsFolder);
+                    _bundledChromePath = null;
+                    _ready = false;
+                }
+                finally
+                {
+                    _startLock.Release();
+                }
+
+                await EnsureReadyAsync().ConfigureAwait(false);
+                _logger.Info($"FlareSolverr updated to {latestTag}.");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn(ex, "FlareSolverr update check/update failed.");
+            }
+        }
+
+        private void SafeDeleteDirectory(string dir)
+        {
+            for (var attempt = 0; attempt < 5; attempt++)
+            {
+                try
+                {
+                    if (Directory.Exists(dir))
+                        Directory.Delete(dir, true);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    if (attempt == 4)
+                        throw;
+                    _logger.Debug($"Retry deleting '{dir}' ({ex.Message})...");
+                    Thread.Sleep(1000);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Ensures a self-contained headless browser is available so no system Chrome is required.
+        /// FlareSolverr 3.7.0+ already bundles a Chromium (at _internal/chrome) - we use that as-is.
+        /// Older builds don't, so we download the portable Chromium snapshot once. Either way
+        /// <see cref="_bundledChromePath"/> points at the browser and <see cref="ResolveBrowserExecutable"/>
         /// prefers it. Best-effort: on failure FlareSolverr falls back to system Chrome detection.
         /// </summary>
         private async Task EnsureBundledChromiumAsync()
@@ -252,7 +344,19 @@ namespace Jackett.Common.Services
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 return;
 
-            var installDir = Path.Combine(_configurationService.GetAppDataFolder(), "FlareSolverr");
+            // Prefer a Chromium that FlareSolverr already ships with (3.7.0+), avoiding a second download.
+            if (!string.IsNullOrEmpty(_executablePath))
+            {
+                var fsBundled = Path.Combine(Path.GetDirectoryName(_executablePath), "_internal", "chrome", "chrome.exe");
+                if (File.Exists(fsBundled))
+                {
+                    _bundledChromePath = fsBundled;
+                    _logger.Info($"Using FlareSolverr's bundled Chromium at {fsBundled}");
+                    return;
+                }
+            }
+
+            var installDir = InstallDir;
             var chromiumDir = Path.Combine(installDir, "chromium");
             var chromeExe = Path.Combine(chromiumDir, "chrome-win", "chrome.exe");
 

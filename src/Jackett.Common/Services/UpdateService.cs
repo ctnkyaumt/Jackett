@@ -33,12 +33,13 @@ namespace Jackett.Common.Services
         private readonly IServiceConfigService windowsService;
         private readonly IFilePermissionService filePermissionService;
         private readonly ServerConfig serverConfig;
+        private readonly IFlareSolverrManagerService flareSolverrManager;
         private bool forceUpdateCheck; // false by default
         private Variants.JackettVariant variant;
 
         private static readonly Regex _VersionRegex = new Regex(@"v(?<major>\d+)\.(?<minor>\d+)\.(?<build>\d+)", RegexOptions.Compiled);
 
-        public UpdateService(Logger l, WebClient c, ITrayLockService ls, IServiceConfigService ws, IFilePermissionService fps, ServerConfig sc)
+        public UpdateService(Logger l, WebClient c, ITrayLockService ls, IServiceConfigService ws, IFilePermissionService fps, ServerConfig sc, IFlareSolverrManagerService fsm)
         {
             logger = l;
             client = c;
@@ -46,6 +47,7 @@ namespace Jackett.Common.Services
             windowsService = ws;
             serverConfig = sc;
             filePermissionService = fps;
+            flareSolverrManager = fsm;
 
             variant = new Variants().GetVariant();
 
@@ -101,6 +103,13 @@ namespace Jackett.Common.Services
             {
                 logger.Info("Skipping checking for new releases because Jackett is running in IDE.");
                 return;
+            }
+
+            // Update the embedded FlareSolverr first (before any Jackett self-update, which restarts the app).
+            if (flareSolverrManager != null)
+            {
+                try { await flareSolverrManager.CheckForUpdateAsync(); }
+                catch (Exception e) { logger.Warn(e, "FlareSolverr update check failed."); }
             }
 
             var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
