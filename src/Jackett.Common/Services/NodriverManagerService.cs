@@ -35,9 +35,11 @@ namespace Jackett.Common.Services
     /// nodriver (pure CDP, no chromedriver/Selenium). This solves Cloudflare challenges that
     /// FlareSolverr's undetected-chromedriver is detected on when running on Windows.
     ///
-    /// The solver is a small Python service (nd_service.py) shipped alongside Jackett as an
-    /// embeddable-Python bundle in the "nodriver" folder. It needs a Chromium, which
-    /// is downloaded once at runtime (the browser is too large to ship in the installer).
+    /// The solver is a small Python service (nd_service.py) shipped alongside Jackett in the
+    /// "nodriver" folder. At runtime it uses system Python if available (directly or via a venv);
+    /// embeddable Python is downloaded on-demand only as a last resort. Chromium is resolved from
+    /// the system first (installed Chrome, PATH, registry, user directories) and downloaded only
+    /// if nothing is found.
     /// </summary>
     public class NodriverManagerService : INodriverManagerService
     {
@@ -46,6 +48,9 @@ namespace Jackett.Common.Services
 
         // Portable Chromium snapshot to download (matches the version nodriver was validated against).
         private const string ChromiumSnapshotRevision = "1522586";
+
+        // Embeddable Python version to download on-demand when no system Python is usable.
+        private const string EmbeddablePythonVersion = "3.11.9";
 
         private static readonly HttpClient _healthClient = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
 
@@ -123,7 +128,7 @@ namespace Jackett.Common.Services
 
                 _ready = false;
                 await EnsureChromiumAsync().ConfigureAwait(false);
-                StartServiceProcess();
+                await StartServiceProcessAsync().ConfigureAwait(false);
 
                 var deadline = DateTime.UtcNow.AddSeconds(ReadyTimeoutSeconds);
                 while (DateTime.UtcNow < deadline)
@@ -455,9 +460,9 @@ namespace Jackett.Common.Services
         /// Chooses the Python interpreter to run the solver with. Preference order:
         ///   1. System Python directly (if nodriver + aiohttp + ssl all work without a venv)
         ///   2. System Python inside a venv (created once with the solver's deps)
-        ///   3. Bundled embeddable Python shipped with Jackett (last resort)
+        ///   3. On-demand embeddable Python downloaded to AppData (last resort)
         /// </summary>
-        private string ResolvePythonExe()
+        private async Task<string> ResolvePythonExeAsync()
         {
             try
             {
@@ -485,10 +490,103 @@ namespace Jackett.Common.Services
             }
             catch (Exception ex)
             {
-                _logger.Debug($"System Python setup failed; using the bundled Python. {ex.Message}");
+                _logger.Debug($"System Python not usable: {ex.Message}");
             }
-            _logger.Info("Falling back to bundled Python for the solver.");
-            return Path.Combine(BundleDir, "python.exe");
+
+            // --- Last resort: download embeddable Python on-demand ---
+            _logger.Info("No usable system Python found. Downloading embeddable Python (last resort)...");
+            return await EnsureEmbeddablePythonAsync().ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Downloads and configures the embeddable CPython distribution on-demand. This is the
+        /// last resort when no system Python is available or usable. The bundle is placed under
+        /// InstallDir/python-embed so it persists across restarts and only downloads once.
+        /// </summary>
+        private async Task<string> EnsureEmbeddablePythonAsync()
+        {
+            var embedDir = Path.Combine(InstallDir, "python-embed");
+            var embedPy = Path.Combine(embedDir, "python.exe");
+
+            // Already downloaded — validate it still works.
+            if (File.Exists(embedPy))
+            {
+                if (EmbeddedPythonHasDeps(embedPy))
+                {
+                    _logger.Info($"Using previously downloaded embeddable Python: {embedPy}");
+                    return embedPy;
+                }
+                // Corrupt/broken — delete and re-download.
+                _logger.Warn("Existing embeddable Python is broken; re-downloading...");
+                try { Directory.Delete(embedDir, true); } catch { }
+            }
+
+            Directory.CreateDirectory(embedDir);
+
+            // Download embeddable CPython.
+            var url = $"https://www.python.org/ftp/python/{EmbeddablePythonVersion}/python-{EmbeddablePythonVersion}-embed-amd64.zip";
+            var tempZip = Path.Combine(InstallDir, "python-embed.zip");
+            _logger.Info($"Downloading embeddable Python {EmbeddablePythonVersion}...");
+
+            using (var httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(10) })
+            using (var response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
+            {
+                response.EnsureSuccessStatusCode();
+                using (var fileStream = File.Create(tempZip))
+                using (var httpStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                {
+                    await httpStream.CopyToAsync(fileStream).ConfigureAwait(false);
+                }
+            }
+
+            ZipFile.ExtractToDirectory(tempZip, embedDir, true);
+            File.Delete(tempZip);
+
+            // Enable site-packages so pip-installed deps are importable.
+            foreach (var pthFile in Directory.GetFiles(embedDir, "python*._pth"))
+            {
+                var lines = File.ReadAllText(pthFile)
+                    .Replace("#import site", "import site");
+                File.WriteAllText(pthFile, lines);
+            }
+
+            // Bootstrap pip.
+            _logger.Info("Bootstrapping pip in embeddable Python...");
+            var getPipPath = Path.Combine(InstallDir, "get-pip.py");
+            using (var httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) })
+            using (var response = await httpClient.GetAsync("https://bootstrap.pypa.io/get-pip.py").ConfigureAwait(false))
+            {
+                response.EnsureSuccessStatusCode();
+                File.WriteAllText(getPipPath, await response.Content.ReadAsStringAsync().ConfigureAwait(false));
+            }
+            RunCapture(embedPy, $"\"{getPipPath}\" --no-warn-script-location", 120000, out _);
+            try { File.Delete(getPipPath); } catch { }
+
+            // Install solver deps.
+            var requirements = Path.Combine(BundleDir, "requirements.txt");
+            if (File.Exists(requirements))
+            {
+                _logger.Info("Installing nodriver + aiohttp in embeddable Python...");
+                RunCapture(embedPy, $"-m pip install --no-warn-script-location -r \"{requirements}\"", 600000, out _);
+            }
+
+            if (!EmbeddedPythonHasDeps(embedPy))
+            {
+                throw new Exception("Embeddable Python setup failed: required packages are missing after install.");
+            }
+
+            _logger.Info($"Embeddable Python ready at {embedPy}");
+            return embedPy;
+        }
+
+        private bool EmbeddedPythonHasDeps(string embedPy)
+        {
+            try
+            {
+                RunCapture(embedPy, "-c \"import ssl, nodriver, aiohttp\"", 15000, out var code);
+                return code == 0;
+            }
+            catch { return false; }
         }
 
         /// <summary>
@@ -621,7 +719,7 @@ namespace Jackett.Common.Services
             }
         }
 
-        private void StartServiceProcess()
+        private async Task StartServiceProcessAsync()
         {
             if (_process != null && !_process.HasExited)
                 return;
@@ -632,7 +730,7 @@ namespace Jackett.Common.Services
                 _process = null;
             }
 
-            var pythonExe = ResolvePythonExe();
+            var pythonExe = await ResolvePythonExeAsync().ConfigureAwait(false);
             var scriptPath = Path.Combine(BundleDir, "nd_service.py");
             if (!File.Exists(pythonExe) || !File.Exists(scriptPath))
             {
