@@ -56,25 +56,26 @@ jobs:
               git commit -am "Keep fork-owned files (nodriver solver) after upstream merge"
           }
           
+          # Version this fork as "upstream latest + 1": e.g. upstream v0.24.2184 -> this fork v0.24.2185.
+          # Manual override via the version_number input: a full "0.24.2200" is used as-is, otherwise the
+          # value is treated as the build number under 0.24.
           $inputVersion = "${{ github.event.inputs.version_number }}"
-          if ([string]::IsNullOrWhiteSpace($inputVersion)) {
-              if (Test-Path VERSION.txt) {
-                  $currentVersion = [int]((Get-Content VERSION.txt).Trim())
-                  $newVersion = $currentVersion + 1
-              } else {
-                  $newVersion = 1
-              }
+          if (-not [string]::IsNullOrWhiteSpace($inputVersion)) {
+              if ($inputVersion -match '^\d+\.\d+\.\d+$') { $fullVersion = $inputVersion }
+              else { $fullVersion = "0.24.$inputVersion" }
           } else {
-              $newVersion = [int]$inputVersion
+              $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/Jackett/Jackett/releases/latest" -Headers @{ "User-Agent" = "jackett-fork-ci" }
+              $parts = $latest.tag_name.TrimStart('v').Split('.')
+              $fullVersion = "$($parts[0]).$($parts[1]).$([int]$parts[2] + 1)"
           }
-          Set-Content -Path VERSION.txt -Value $newVersion
-          
-          echo "RELEASE_VERSION=$newVersion" >> $env:GITHUB_ENV
-          
+          Set-Content -Path VERSION.txt -Value $fullVersion
+
+          echo "FULL_VERSION=$fullVersion" >> $env:GITHUB_ENV
+
           git add VERSION.txt
           $status = git status --porcelain
           if (-not [string]::IsNullOrWhiteSpace($status)) {
-              git commit -m "Bump version to v$newVersion"
+              git commit -m "Set version to v$fullVersion"
               git push origin master
           } else {
               git push origin master
@@ -93,10 +94,10 @@ jobs:
 
       - name: Build Jackett (win-x64)
         run: |
-          dotnet publish src/Jackett.Server/Jackett.Server.csproj -c Release -f net9.0 -r win-x64 --self-contained true -o ./publish-win
-          dotnet publish src/Jackett.Tray/Jackett.Tray.csproj -c Release -r win-x64 --self-contained true -o ./publish-win
-          dotnet publish src/Jackett.Service/Jackett.Service.csproj -c Release -r win-x64 --self-contained true -o ./publish-win
-          dotnet publish src/Jackett.Updater/Jackett.Updater.csproj -c Release -f net9.0 -r win-x64 --self-contained true -o ./publish-win
+          dotnet publish src/Jackett.Server/Jackett.Server.csproj -c Release -f net9.0 -r win-x64 --self-contained true -p:Version=${{ env.FULL_VERSION }} -o ./publish-win
+          dotnet publish src/Jackett.Tray/Jackett.Tray.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ env.FULL_VERSION }} -o ./publish-win
+          dotnet publish src/Jackett.Service/Jackett.Service.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ env.FULL_VERSION }} -o ./publish-win
+          dotnet publish src/Jackett.Updater/Jackett.Updater.csproj -c Release -f net9.0 -r win-x64 --self-contained true -p:Version=${{ env.FULL_VERSION }} -o ./publish-win
 
       # Build the nodriver-based Cloudflare solver (embeddable Python + nodriver + aiohttp) and
       # ship it inside the Jackett binaries so it installs alongside Jackett.
@@ -108,27 +109,27 @@ jobs:
 
       - name: Build Installer (Inno Setup)
         run: |
-          iscc /DMyAppVersion="0.24.${{ env.RELEASE_VERSION }}" /DMySourceFolder="publish-win" /DMyOutputFilename="Jackett.Installer.Windows" Installer.iss
+          iscc /DMyAppVersion="${{ env.FULL_VERSION }}" /DMySourceFolder="publish-win" /DMyOutputFilename="Jackett.Installer.Windows" Installer.iss
 
       - name: Upload Zip Artifact
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'false' }}
         uses: actions/upload-artifact@v4
         with:
-          name: Jackett-Binaries-v${{ env.RELEASE_VERSION }}
+          name: Jackett-Binaries-v${{ env.FULL_VERSION }}
           path: Jackett.Binaries.Windows.zip
 
       - name: Upload Installer Artifact
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'false' }}
         uses: actions/upload-artifact@v4
         with:
-          name: Jackett-Installer-v${{ env.RELEASE_VERSION }}
+          name: Jackett-Installer-v${{ env.FULL_VERSION }}
           path: Output/Jackett.Installer.Windows.exe
 
       - name: Create Release
         if: ${{ github.event_name == 'schedule' || github.event.inputs.create_release != 'false' }}
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: "v${{ env.RELEASE_VERSION }}"
+          tag_name: "v${{ env.FULL_VERSION }}"
           files: |
             Jackett.Binaries.Windows.zip
             Output/Jackett.Installer.Windows.exe

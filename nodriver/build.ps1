@@ -36,6 +36,8 @@ Write-Host "Installing nodriver + aiohttp..."
 & $py -m pip install --no-warn-script-location -r (Join-Path $here "requirements.txt")
 
 Copy-Item (Join-Path $here "nd_service.py") (Join-Path $OutDir "nd_service.py") -Force
+# Ship requirements.txt too, so a system-Python venv can install the same deps at runtime.
+Copy-Item (Join-Path $here "requirements.txt") (Join-Path $OutDir "requirements.txt") -Force
 
 # Sanity check
 & $py -c "import nodriver, aiohttp; print('nodriver bundle OK')"

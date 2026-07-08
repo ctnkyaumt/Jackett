@@ -186,13 +186,22 @@ namespace Jackett.Common.Services
             "nodriver");
 
         /// <summary>
-        /// Ensures a Chromium is present for nodriver to drive. Downloads the portable snapshot once
-        /// (the browser is too big to ship in the installer). Sets <see cref="_chromePath"/>.
+        /// Ensures a Chrome/Chromium is available for nodriver. Prefers one already on the system
+        /// (real Google Chrome, a user Chromium, or an explicit override), and only downloads the
+        /// portable snapshot when nothing usable is found. Sets <see cref="_chromePath"/>.
         /// </summary>
         private async Task EnsureChromiumAsync()
         {
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 return;
+
+            var systemChrome = ResolveSystemChrome();
+            if (!string.IsNullOrEmpty(systemChrome))
+            {
+                _chromePath = systemChrome;
+                _logger.Info($"Using system Chrome/Chromium at {systemChrome}");
+                return;
+            }
 
             var chromiumDir = Path.Combine(InstallDir, "chromium");
             var chromeExe = Path.Combine(chromiumDir, "chrome-win", "chrome.exe");
@@ -203,7 +212,7 @@ namespace Jackett.Common.Services
                 return;
             }
 
-            _logger.Info($"Downloading portable Chromium (snapshot {ChromiumSnapshotRevision}, ~290 MB) for the solver. This is a one-time download...");
+            _logger.Info($"No system Chrome/Chromium found. Downloading portable Chromium (snapshot {ChromiumSnapshotRevision}, ~290 MB). This is a one-time download...");
             Directory.CreateDirectory(chromiumDir);
 
             var url = $"https://commondatastorage.googleapis.com/chromium-browser-snapshots/Win_x64/{ChromiumSnapshotRevision}/chrome-win.zip";
@@ -235,6 +244,147 @@ namespace Jackett.Common.Services
             }
         }
 
+        /// <summary>
+        /// Finds a usable Chrome/Chromium already installed: an explicit override
+        /// (JACKETT_CHROME_PATH env or a chrome_path.txt file), then real Google Chrome / Chromium in
+        /// their standard locations. Folder roots come from the known-folder API so they resolve even
+        /// when Jackett is launched with a stripped environment. Returns null if none is found.
+        /// </summary>
+        private string ResolveSystemChrome()
+        {
+            var env = Environment.GetEnvironmentVariable("JACKETT_CHROME_PATH");
+            if (!string.IsNullOrWhiteSpace(env) && File.Exists(env.Trim('"')))
+                return env.Trim('"');
+
+            try
+            {
+                var overrideFile = Path.Combine(InstallDir, "chrome_path.txt");
+                if (File.Exists(overrideFile))
+                {
+                    var p = File.ReadAllText(overrideFile).Trim().Trim('"');
+                    if (!string.IsNullOrWhiteSpace(p) && File.Exists(p))
+                        return p;
+                }
+            }
+            catch { }
+
+            var roots = new[]
+            {
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+            };
+            var relPaths = new[]
+            {
+                @"Google\Chrome\Application\chrome.exe",
+                @"Chromium\Application\chrome.exe"
+            };
+            foreach (var root in roots)
+            {
+                if (string.IsNullOrEmpty(root))
+                    continue;
+                foreach (var rel in relPaths)
+                {
+                    var candidate = Path.Combine(root, rel);
+                    if (File.Exists(candidate))
+                        return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Chooses the Python interpreter to run the solver with. Prefers a Python already installed
+        /// on the system (set up once in a venv with the solver's deps), and only falls back to the
+        /// embeddable Python bundle shipped with Jackett if there's no system Python or the venv setup fails.
+        /// </summary>
+        private string ResolvePythonExe()
+        {
+            try
+            {
+                if (SystemPythonAvailable())
+                {
+                    var venvPy = EnsureVenvPython();
+                    if (venvPy != null)
+                    {
+                        _logger.Info($"Using system Python (venv) for the solver: {venvPy}");
+                        return venvPy;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Debug($"System Python setup failed; using the bundled Python. {ex.Message}");
+            }
+            return Path.Combine(BundleDir, "python.exe");
+        }
+
+        private bool SystemPythonAvailable()
+        {
+            try
+            {
+                var outp = RunCapture("python", "--version", 5000, out var code);
+                return code == 0 && outp.IndexOf("Python 3", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            catch { return false; }
+        }
+
+        private string EnsureVenvPython()
+        {
+            var venvDir = Path.Combine(InstallDir, "venv");
+            var venvPy = Path.Combine(venvDir, "Scripts", "python.exe");
+            if (File.Exists(venvPy) && VenvHasDeps(venvPy))
+                return venvPy;
+
+            var requirements = Path.Combine(BundleDir, "requirements.txt");
+            if (!File.Exists(requirements))
+                return null;
+
+            _logger.Info("Setting up a Python venv for the solver (one-time)...");
+            RunCapture("python", $"-m venv \"{venvDir}\"", 120000, out _);
+            if (!File.Exists(venvPy))
+                return null;
+
+            RunCapture(venvPy, $"-m pip install --disable-pip-version-check --no-warn-script-location -r \"{requirements}\"", 600000, out _);
+            return VenvHasDeps(venvPy) ? venvPy : null;
+        }
+
+        private bool VenvHasDeps(string pythonExe)
+        {
+            try
+            {
+                RunCapture(pythonExe, "-c \"import nodriver, aiohttp\"", 15000, out var code);
+                return code == 0;
+            }
+            catch { return false; }
+        }
+
+        private string RunCapture(string exe, string args, int timeoutMs, out int exitCode)
+        {
+            var psi = new ProcessStartInfo(exe, args)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            using (var p = Process.Start(psi))
+            {
+                // Drain both streams concurrently to avoid a full-pipe deadlock.
+                var stdout = p.StandardOutput.ReadToEndAsync();
+                var stderr = p.StandardError.ReadToEndAsync();
+                if (!p.WaitForExit(timeoutMs))
+                {
+                    try { p.Kill(); } catch { }
+                    exitCode = -1;
+                    return string.Empty;
+                }
+                exitCode = p.ExitCode;
+                return (stdout.Result ?? "") + (stderr.Result ?? "");
+            }
+        }
+
         private void StartServiceProcess()
         {
             if (_process != null && !_process.HasExited)
@@ -246,13 +396,13 @@ namespace Jackett.Common.Services
                 _process = null;
             }
 
-            var pythonExe = Path.Combine(BundleDir, "python.exe");
+            var pythonExe = ResolvePythonExe();
             var scriptPath = Path.Combine(BundleDir, "nd_service.py");
             if (!File.Exists(pythonExe) || !File.Exists(scriptPath))
             {
                 throw new Exception(
-                    $"nodriver solver bundle not found at {BundleDir}. Expected python.exe and nd_service.py. " +
-                    "Reinstall Jackett to restore the bundled solver.");
+                    $"nodriver solver not runnable. Python: {pythonExe} (exists={File.Exists(pythonExe)}); " +
+                    $"script: {scriptPath} (exists={File.Exists(scriptPath)}). Reinstall Jackett to restore the bundled solver.");
             }
             if (string.IsNullOrEmpty(_chromePath) || !File.Exists(_chromePath))
             {
