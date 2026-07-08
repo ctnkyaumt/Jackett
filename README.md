@@ -60,15 +60,25 @@ maintain indexer scraping for all your apps. See the
 
 ## Cloudflare solving (nodriver)
 
-Nothing to configure. When an indexer needs a Cloudflare bypass:
+Nothing to configure. When an indexer needs a Cloudflare bypass, Jackett launches the embedded solver
+on `http://127.0.0.1:8191` on demand (and restarts it if it dies). nodriver drives a Chrome/Chromium
+off-screen to solve the challenge and returns the page and `cf_clearance` cookie to Jackett.
 
-1. Jackett launches the embedded solver on `http://127.0.0.1:8191` on demand, and restarts it if it dies.
-2. On first use it downloads a portable Chromium (~290 MB, one time) to `%ProgramData%\Jackett\nodriver\chromium`.
-3. nodriver drives that Chromium off-screen to solve the challenge and returns the page and
-   `cf_clearance` cookie to Jackett.
+**Browser:** the solver reuses a Chrome/Chromium already on your system rather than downloading one
+when it can. It looks for, in order:
 
-The solver source lives in [`nodriver/`](nodriver/) and ships as an embeddable-Python bundle inside
-the install at `%ProgramData%\Jackett\nodriver`.
+1. an explicit override — the `JACKETT_CHROME_PATH` env var, or a `chrome_path.txt` file (one line,
+   full path to `chrome.exe`) in `%ProgramData%\Jackett\nodriver`;
+2. a real **Google Chrome** or **Chromium** in the standard install locations;
+3. only if none is found, a portable Chromium is downloaded once (~290 MB) to
+   `%ProgramData%\Jackett\nodriver\chromium`.
+
+> Using a custom Chromium at a non-standard path? Point it there with `chrome_path.txt`.
+
+**Python:** the solver is a small Python service. It prefers a Python already installed on your system
+(set up once in a venv), and falls back to a self-contained embeddable Python bundled with Jackett if
+there's no usable system Python. The solver source is in [`nodriver/`](nodriver/) and ships inside the
+install at `%ProgramData%\Jackett\nodriver`.
 
 > Cloudflare bypass is an arms race and isn't 100% on every attempt, but nodriver solves the common
 > hard trackers (1337x, KickassTorrents, …) that FlareSolverr fails on Windows.
