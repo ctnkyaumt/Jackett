@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Net.Http;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -10,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jackett.Common.Models.Config;
 using Jackett.Common.Services.Interfaces;
+using Microsoft.Win32;
 using NLog;
 
 namespace Jackett.Common.Services.Interfaces
@@ -246,13 +249,17 @@ namespace Jackett.Common.Services
         }
 
         /// <summary>
-        /// Finds a usable Chrome/Chromium already installed: an explicit override
-        /// (JACKETT_CHROME_PATH env or a chrome_path.txt file), then real Google Chrome / Chromium in
-        /// their standard locations. Folder roots come from the known-folder API so they resolve even
-        /// when Jackett is launched with a stripped environment. Returns null if none is found.
+        /// Finds a usable Chrome/Chromium already installed. Search order:
+        ///   1. Explicit override: JACKETT_CHROME_PATH env-var or chrome_path.txt
+        ///   2. Standard install locations (Program Files, LocalAppData)
+        ///   3. Windows Registry (Chrome and Chromium install paths)
+        ///   4. PATH lookup via where.exe
+        ///   5. Recursive scan of well-known user directories (Documents, Desktop, Downloads)
+        /// Returns null only if nothing usable is found anywhere.
         /// </summary>
         private string ResolveSystemChrome()
         {
+            // --- 1. Explicit overrides -----------------------------------------------
             var env = Environment.GetEnvironmentVariable("JACKETT_CHROME_PATH");
             if (!string.IsNullOrWhiteSpace(env) && File.Exists(env.Trim('"')))
                 return env.Trim('"');
@@ -269,6 +276,7 @@ namespace Jackett.Common.Services
             }
             catch { }
 
+            // --- 2. Standard well-known install locations ----------------------------
             var roots = new[]
             {
                 Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
@@ -292,13 +300,162 @@ namespace Jackett.Common.Services
                 }
             }
 
+            // --- 3. Windows Registry ------------------------------------------------
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                var regResult = FindChromeInRegistry();
+                if (regResult != null)
+                    return regResult;
+            }
+
+            // --- 4. PATH lookup via where.exe ---------------------------------------
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                foreach (var exeName in new[] { "chrome.exe", "chromium.exe" })
+                {
+                    try
+                    {
+                        var output = RunCapture("where.exe", exeName, 5000, out var code);
+                        if (code == 0)
+                        {
+                            var firstLine = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+                            if (!string.IsNullOrWhiteSpace(firstLine) && File.Exists(firstLine.Trim()))
+                                return firstLine.Trim();
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            // --- 5. Recursive scan of user directories ------------------------------
+            // Scan specific subdirectories of the user profile rather than the whole
+            // profile (which includes AppData — enormous and full of false positives).
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var scanDirs = new List<string>();
+            if (!string.IsNullOrEmpty(userProfile) && Directory.Exists(userProfile))
+            {
+                var subNames = new[] { "Documents", "Desktop", "Downloads", "Apps", "Programs", "Tools", "Browsers" };
+                foreach (var sub in subNames)
+                {
+                    var full = Path.Combine(userProfile, sub);
+                    if (Directory.Exists(full))
+                        scanDirs.Add(full);
+                }
+                // Also scan any direct chrome/chromium exe sitting in the profile root
+                foreach (var name in new[] { "chrome.exe", "chromium.exe" })
+                {
+                    var candidate = Path.Combine(userProfile, name);
+                    if (File.Exists(candidate))
+                        return candidate;
+                }
+            }
+            foreach (var dir in scanDirs)
+            {
+                var found = FindChromeRecursive(dir, maxDepth: 6);
+                if (found != null)
+                    return found;
+            }
+
             return null;
         }
 
         /// <summary>
-        /// Chooses the Python interpreter to run the solver with. Prefers a Python already installed
-        /// on the system (set up once in a venv with the solver's deps), and only falls back to the
-        /// embeddable Python bundle shipped with Jackett if there's no system Python or the venv setup fails.
+        /// Checks the Windows Registry for Chrome/Chromium install locations.
+        /// </summary>
+        private string FindChromeInRegistry()
+        {
+            var regPaths = new[]
+            {
+                @"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
+                @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
+                @"SOFTWARE\Chromium\BLBeacon"
+            };
+            foreach (var regPath in regPaths)
+            {
+                try
+                {
+                    using (var key = Registry.LocalMachine.OpenSubKey(regPath))
+                    {
+                        var val = key?.GetValue(null)?.ToString() ?? key?.GetValue("Path")?.ToString();
+                        if (!string.IsNullOrEmpty(val))
+                        {
+                            // Value might be a direct exe path or a directory
+                            if (File.Exists(val))
+                                return val;
+                            var asDir = Path.Combine(val, "chrome.exe");
+                            if (File.Exists(asDir))
+                                return asDir;
+                        }
+                    }
+                }
+                catch { }
+                try
+                {
+                    using (var key = Registry.CurrentUser.OpenSubKey(regPath))
+                    {
+                        var val = key?.GetValue(null)?.ToString() ?? key?.GetValue("Path")?.ToString();
+                        if (!string.IsNullOrEmpty(val))
+                        {
+                            if (File.Exists(val))
+                                return val;
+                            var asDir = Path.Combine(val, "chrome.exe");
+                            if (File.Exists(asDir))
+                                return asDir;
+                        }
+                    }
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Recursively searches a directory for chrome.exe or chromium.exe, limited by depth.
+        /// Skips hidden/system directories and common non-browser folders to keep the scan fast.
+        /// </summary>
+        private string FindChromeRecursive(string dir, int maxDepth)
+        {
+            if (maxDepth <= 0)
+                return null;
+            try
+            {
+                foreach (var name in new[] { "chrome.exe", "chromium.exe" })
+                {
+                    var candidate = Path.Combine(dir, name);
+                    if (File.Exists(candidate))
+                        return candidate;
+                }
+                foreach (var subDir in Directory.EnumerateDirectories(dir))
+                {
+                    var dirName = Path.GetFileName(subDir);
+                    // Skip obvious non-browser directories to keep the scan fast
+                    if (dirName.StartsWith(".") ||
+                        string.Equals(dirName, "node_modules", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(dirName, ".git", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(dirName, "__pycache__", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    try
+                    {
+                        var attr = new DirectoryInfo(subDir).Attributes;
+                        if ((attr & (FileAttributes.Hidden | FileAttributes.System)) != 0)
+                            continue;
+                    }
+                    catch { continue; }
+
+                    var found = FindChromeRecursive(subDir, maxDepth - 1);
+                    if (found != null)
+                        return found;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>
+        /// Chooses the Python interpreter to run the solver with. Preference order:
+        ///   1. System Python directly (if nodriver + aiohttp + ssl all work without a venv)
+        ///   2. System Python inside a venv (created once with the solver's deps)
+        ///   3. Bundled embeddable Python shipped with Jackett (last resort)
         /// </summary>
         private string ResolvePythonExe()
         {
@@ -306,6 +463,18 @@ namespace Jackett.Common.Services
             {
                 if (SystemPythonAvailable())
                 {
+                    // --- Try system Python directly (no venv) ---
+                    if (SystemPythonHasDeps())
+                    {
+                        var resolved = ResolveExeOnPath("python");
+                        if (resolved != null)
+                        {
+                            _logger.Info($"Using system Python directly for the solver: {resolved}");
+                            return resolved;
+                        }
+                    }
+
+                    // --- Try system Python inside a venv ---
                     var venvPy = EnsureVenvPython();
                     if (venvPy != null)
                     {
@@ -318,7 +487,42 @@ namespace Jackett.Common.Services
             {
                 _logger.Debug($"System Python setup failed; using the bundled Python. {ex.Message}");
             }
+            _logger.Info("Falling back to bundled Python for the solver.");
             return Path.Combine(BundleDir, "python.exe");
+        }
+
+        /// <summary>
+        /// Checks whether the system Python already has nodriver, aiohttp, and a working SSL stack
+        /// installed globally (or in user site-packages), so we can skip the venv entirely.
+        /// </summary>
+        private bool SystemPythonHasDeps()
+        {
+            try
+            {
+                RunCapture("python", "-c \"import ssl, nodriver, aiohttp\"", 15000, out var code);
+                return code == 0;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// Resolves a bare executable name (e.g. "python") to an absolute path via where.exe.
+        /// Returns null if the executable is not found on PATH.
+        /// </summary>
+        private string ResolveExeOnPath(string exeName)
+        {
+            try
+            {
+                var output = RunCapture("where.exe", exeName, 5000, out var code);
+                if (code == 0)
+                {
+                    var firstLine = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+                    if (!string.IsNullOrWhiteSpace(firstLine) && File.Exists(firstLine.Trim()))
+                        return firstLine.Trim();
+                }
+            }
+            catch { }
+            return null;
         }
 
         private bool SystemPythonAvailable()
@@ -380,7 +584,10 @@ namespace Jackett.Common.Services
             {
                 // Validate under the SAME conditions the service will run (own dir as cwd, base DLLs
                 // on PATH), so a pass here reliably predicts the service will start.
-                RunCapture(pythonExe, "-c \"import nodriver, aiohttp\"", 15000, out var code, pathPrepend);
+                // Explicitly test 'import ssl' alongside the solver deps because the service imports
+                // it at startup (via nodriver.core.util). A system Python with a broken/mismatched
+                // OpenSSL ("DLL load failed importing _ssl") must be caught here, not at runtime.
+                RunCapture(pythonExe, "-c \"import ssl, nodriver, aiohttp\"", 15000, out var code, pathPrepend);
                 return code == 0;
             }
             catch { return false; }
