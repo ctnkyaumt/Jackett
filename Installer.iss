@@ -78,7 +78,7 @@ Filename: "{sys}\taskkill.exe"; Parameters: "/f /im JackettConsole.exe"; Flags: 
 Filename: "{sys}\taskkill.exe"; Parameters: "/f /im flaresolverr.exe"; Flags: waituntilterminated skipifdoesntexist runhidden
 ; Stop the embedded nodriver solver (Python service + its off-screen Chrome) by command line, so we
 ; never touch the user's own Python or browser. Must run before deleting the nodriver folder below.
-Filename: "powershell.exe"; Parameters: "-NoProfile -Command ""Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq 'python.exe' -and $_.CommandLine -like '*nd_service*') -or ($_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*-32000*') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"""; Flags: waituntilterminated runhidden
+Filename: "powershell.exe"; Parameters: "-NoProfile -Command ""Get-CimInstance Win32_Process | Where-Object {{ ($_.Name -eq 'python.exe' -and $_.CommandLine -like '*nd_service*') -or ($_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*-32000*') } | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"""; Flags: waituntilterminated runhidden
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{commonappdata}\Jackett\FlareSolverr"
