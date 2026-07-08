@@ -53,6 +53,7 @@ namespace Jackett.Common.Services
 
         private Process _process;
         private string _chromePath;
+        private string _pythonPathPrepend; // base-Python DLL dirs to prepend when using a system-Python venv
         private volatile bool _ready;
         private readonly StringBuilder _lastLogs = new StringBuilder();
 
@@ -334,8 +335,27 @@ namespace Jackett.Common.Services
         {
             var venvDir = Path.Combine(InstallDir, "venv");
             var venvPy = Path.Combine(venvDir, "Scripts", "python.exe");
-            if (File.Exists(venvPy) && VenvHasDeps(venvPy))
-                return venvPy;
+
+            // The base Python's own directory + its DLLs folder must be on PATH when running so that
+            // _ssl.pyd loads that Python's OpenSSL, not a different-version libssl/libcrypto found
+            // elsewhere on the machine (the classic Windows "DLL load failed importing _ssl").
+            var basePrefix = RunCapture("python", "-c \"import sys;print(sys.base_prefix)\"", 8000, out var bc).Trim();
+            if (bc != 0 || string.IsNullOrEmpty(basePrefix) || !Directory.Exists(basePrefix))
+                return null;
+            var dllPrepend = basePrefix + ";" + Path.Combine(basePrefix, "DLLs");
+
+            // If a venv already exists, use it only if it actually works under service conditions;
+            // never rebuild a broken one (that would churn a slow pip install on every start) - just
+            // fall back to the bundled Python.
+            if (File.Exists(venvPy))
+            {
+                if (VenvHasDeps(venvPy, dllPrepend))
+                {
+                    _pythonPathPrepend = dllPrepend;
+                    return venvPy;
+                }
+                return null;
+            }
 
             var requirements = Path.Combine(BundleDir, "requirements.txt");
             if (!File.Exists(requirements))
@@ -346,29 +366,38 @@ namespace Jackett.Common.Services
             if (!File.Exists(venvPy))
                 return null;
 
-            RunCapture(venvPy, $"-m pip install --disable-pip-version-check --no-warn-script-location -r \"{requirements}\"", 600000, out _);
-            return VenvHasDeps(venvPy) ? venvPy : null;
+            RunCapture(venvPy, $"-m pip install --disable-pip-version-check --no-warn-script-location -r \"{requirements}\"", 600000, out _, dllPrepend);
+            if (!VenvHasDeps(venvPy, dllPrepend))
+                return null;
+
+            _pythonPathPrepend = dllPrepend;
+            return venvPy;
         }
 
-        private bool VenvHasDeps(string pythonExe)
+        private bool VenvHasDeps(string pythonExe, string pathPrepend)
         {
             try
             {
-                RunCapture(pythonExe, "-c \"import nodriver, aiohttp\"", 15000, out var code);
+                // Validate under the SAME conditions the service will run (own dir as cwd, base DLLs
+                // on PATH), so a pass here reliably predicts the service will start.
+                RunCapture(pythonExe, "-c \"import nodriver, aiohttp\"", 15000, out var code, pathPrepend);
                 return code == 0;
             }
             catch { return false; }
         }
 
-        private string RunCapture(string exe, string args, int timeoutMs, out int exitCode)
+        private string RunCapture(string exe, string args, int timeoutMs, out int exitCode, string pathPrepend = null)
         {
             var psi = new ProcessStartInfo(exe, args)
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
-                RedirectStandardError = true
+                RedirectStandardError = true,
+                WorkingDirectory = File.Exists(exe) ? Path.GetDirectoryName(exe) : null
             };
+            if (!string.IsNullOrEmpty(pathPrepend))
+                psi.EnvironmentVariables["PATH"] = pathPrepend + ";" + (Environment.GetEnvironmentVariable("PATH") ?? "");
             using (var p = Process.Start(psi))
             {
                 // Drain both streams concurrently to avoid a full-pipe deadlock.
@@ -419,12 +448,24 @@ namespace Jackett.Common.Services
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
-                WorkingDirectory = BundleDir
+                // Use the interpreter's own folder as the working dir. The embeddable bundle ships
+                // OpenSSL 3 DLLs (libssl-3.dll); if that folder were the cwd it would shadow a
+                // system Python's OpenSSL and break `import _ssl`. The script path is absolute, so cwd
+                // doesn't affect finding it.
+                WorkingDirectory = Path.GetDirectoryName(pythonExe)
             };
 
             startInfo.EnvironmentVariables["ND_CHROME"] = _chromePath;
             startInfo.EnvironmentVariables["PORT"] = "8191";
             startInfo.EnvironmentVariables["HOST"] = "127.0.0.1";
+
+            // When running a system-Python venv, put that Python's DLL dirs first so _ssl loads the
+            // matching OpenSSL (see EnsureVenvPython). Not needed for the self-contained bundle.
+            if (!string.IsNullOrEmpty(_pythonPathPrepend))
+            {
+                var existingPath = startInfo.EnvironmentVariables.ContainsKey("PATH") ? startInfo.EnvironmentVariables["PATH"] : Environment.GetEnvironmentVariable("PATH");
+                startInfo.EnvironmentVariables["PATH"] = _pythonPathPrepend + ";" + (existingPath ?? "");
+            }
 
             // Jackett can be launched with a stripped environment where the profile vars are wrong,
             // which breaks Chrome's temp/profile handling. Rewrite them from the known-folder API.
