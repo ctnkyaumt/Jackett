@@ -9,10 +9,6 @@ on:
         description: 'Create a GitHub Release? (If false, saves as artifacts)'
         type: boolean
         default: true
-      version_number:
-        description: 'Manual Version Number (e.g., 2). Leave empty for auto-increment.'
-        type: string
-        required: false
 
 jobs:
   sync-and-build:
@@ -57,17 +53,9 @@ jobs:
           }
           
           # Version this fork as "upstream latest + 1": e.g. upstream v0.24.2184 -> this fork v0.24.2185.
-          # Manual override via the version_number input: a full "0.24.2200" is used as-is, otherwise the
-          # value is treated as the build number under 0.24.
-          $inputVersion = "${{ github.event.inputs.version_number }}"
-          if (-not [string]::IsNullOrWhiteSpace($inputVersion)) {
-              if ($inputVersion -match '^\d+\.\d+\.\d+$') { $fullVersion = $inputVersion }
-              else { $fullVersion = "0.24.$inputVersion" }
-          } else {
-              $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/Jackett/Jackett/releases/latest" -Headers @{ "User-Agent" = "jackett-fork-ci" }
-              $parts = $latest.tag_name.TrimStart('v').Split('.')
-              $fullVersion = "$($parts[0]).$($parts[1]).$([int]$parts[2] + 1)"
-          }
+          $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/Jackett/Jackett/releases/latest" -Headers @{ "User-Agent" = "jackett-fork-ci" }
+          $parts = $latest.tag_name.TrimStart('v').Split('.')
+          $fullVersion = "$($parts[0]).$($parts[1]).$([int]$parts[2] + 1)"
           Set-Content -Path VERSION.txt -Value $fullVersion
 
           echo "FULL_VERSION=$fullVersion" >> $env:GITHUB_ENV
