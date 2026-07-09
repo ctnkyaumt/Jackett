@@ -40,20 +40,34 @@ logging.basicConfig(
 )
 log = logging.getLogger("nd-flaresolverr")
 
-# Titles/markers that indicate a Cloudflare (or similar) interstitial is still showing.
-CHALLENGE_MARKERS = [
+# Titles that indicate a Cloudflare (or similar) interstitial is still showing. Safe to
+# match broadly since a <title> is short and controlled by the interstitial/site itself.
+TITLE_CHALLENGE_MARKERS = [
     "just a moment", "bir dakika", "checking your browser", "attention required",
     "cloudflare", "verifying you are", "un momento", "einen moment", "moment...",
     "ddos-guard", "please wait",
+]
+
+# Markers checked against page HTML - must be specific to an actual challenge page
+# template, NOT generic words like "cloudflare" or "please wait" that legitimately
+# appear on plenty of resolved pages (e.g. uindex.org loads Font Awesome from
+# cdnjs.cloudflare.com, which made every solved page look like a stuck challenge).
+HTML_CHALLENGE_MARKERS = [
+    "just a moment", "checking your browser", "cf-browser-verification",
+    "cf_chl_opt", "challenge-running", "jschl-answer", "cf-chl-widget",
+    "turnstile", "ddos-guard",
 ]
 
 # One browser at a time - each request gets a fresh browser, like FlareSolverr sessions.
 _solve_lock = asyncio.Lock()
 
 
-def _is_challenge(text):
-    t = (text or "").lower()
-    return any(m in t for m in CHALLENGE_MARKERS)
+def _is_challenge(title, html):
+    t = (title or "").lower()
+    if any(m in t for m in TITLE_CHALLENGE_MARKERS):
+        return True
+    h = (html or "").lower()
+    return any(m in h for m in HTML_CHALLENGE_MARKERS)
 
 
 async def _solve(url, max_timeout_ms):
@@ -79,7 +93,7 @@ async def _solve(url, max_timeout_ms):
                     html = await page.get_content()
                 except Exception:
                     pass
-                if title and not _is_challenge(title) and not _is_challenge(html[:4000]):
+                if title and not _is_challenge(title, html[:4000]):
                     break
 
             try:
@@ -102,7 +116,7 @@ async def _solve(url, max_timeout_ms):
             except Exception:
                 log.debug("failed reading cookies", exc_info=True)
 
-            solved = bool(html) and not _is_challenge(html[:4000])
+            solved = bool(html) and not _is_challenge(title, html[:4000])
             solution = {
                 "url": url,
                 "status": 200,
