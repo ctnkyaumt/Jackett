@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jackett.Common.Models.Config;
 using Jackett.Common.Services.Interfaces;
+using Jackett.Common.Utils;
 using Microsoft.Win32;
 using NLog;
 
@@ -816,6 +817,13 @@ namespace Jackett.Common.Services
             };
 
             _process.Start();
+
+            // Tie the solver (and the Chrome it spawns) to Jackett's lifetime via a Windows Job
+            // Object. JackettTray stops JackettConsole with a hard Process.Kill (TerminateProcess),
+            // so managed cleanup - Dispose/StopProcess below, AppDomain.ProcessExit - never runs and
+            // would otherwise orphan this Python process. The job guarantees the OS kills it on exit.
+            ChildProcessJob.AddProcess(_process);
+
             _process.BeginOutputReadLine();
             _process.BeginErrorReadLine();
         }
