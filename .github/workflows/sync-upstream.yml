@@ -93,11 +93,13 @@ jobs:
         run: ./nodriver/build.ps1 -OutDir "publish-win/nodriver"
 
       - name: Package Jackett binaries
-        run: Compress-Archive -Path "publish-win\*" -DestinationPath "Jackett.Binaries.Windows.zip"
+        run: |
+          Rename-Item -Path "publish-win" -NewName "Jackett"
+          Compress-Archive -Path "Jackett" -DestinationPath "Jackett.Binaries.Windows.zip"
 
       - name: Build Installer (Inno Setup)
         run: |
-          iscc /DMyAppVersion="${{ env.FULL_VERSION }}" /DMySourceFolder="publish-win" /DMyOutputFilename="Jackett.Installer.Windows" Installer.iss
+          iscc /DMyAppVersion="${{ env.FULL_VERSION }}" /DMySourceFolder="Jackett" /DMyOutputFilename="Jackett.Installer.Windows" Installer.iss
 
       - name: Upload Zip Artifact
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'false' }}
