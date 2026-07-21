@@ -34,24 +34,33 @@ jobs:
           # This fork replaced FlareSolverr with an embedded nodriver solver. A git merge cannot skip
           # individual upstream commits by topic, so instead we make sure upstream can never override
           # the fork's changes: merge preferring OURS on any conflict, then hard-restore the files that
-          # are entirely fork-owned (nodriver solver, fork README, this workflow). This effectively
+          # are entirely fork-owned (nodriver solver, fork README, the workflows). This effectively
           # drops any upstream FlareSolverr-related changes to those files while still pulling in
           # everything else (indexer updates, fixes, etc.).
+          # --no-commit so the restores below land in the merge commit itself: a push is rejected
+          # outright if ANY of its commits touch .github/workflows, so the merge commit must be clean.
           $preMerge = git rev-parse HEAD
-          git merge -X ours upstream/master --allow-unrelated-histories --no-edit -m "Auto-merge upstream Jackett"
+          git merge -X ours upstream/master --allow-unrelated-histories --no-ff --no-commit
 
           $forkOwned = @(
             "README.md",
             "nodriver",
-            ".github/workflows/sync-upstream.yml",
             "src/Jackett.Common/Services/NodriverManagerService.cs"
           )
           git checkout $preMerge -- $forkOwned
-          $status = git status --porcelain
-          if (-not [string]::IsNullOrWhiteSpace($status)) {
-              git commit -am "Keep fork-owned files (nodriver solver) after upstream merge"
+
+          # GITHUB_TOKEN has no `workflow` scope (there is no such permission for it), so GitHub
+          # rejects the push with "refusing to allow a GitHub App to create or update workflow ..."
+          # if the merge changed anything under .github/workflows - which killed the entire sync.
+          # Pin the whole directory to the fork's pre-merge state: -rf drops upstream's edits AND
+          # any workflow file it added, then checkout restores ours.
+          git rm -rf -q --ignore-unmatch .github/workflows
+          git checkout $preMerge -- .github/workflows
+
+          if (Test-Path .git/MERGE_HEAD) {
+              git commit --no-edit -m "Auto-merge upstream Jackett"
           }
-          
+
           # Version this fork as "upstream latest + 1": e.g. upstream v0.24.2184 -> this fork v0.24.2185.
           $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/Jackett/Jackett/releases/latest" -Headers @{ "User-Agent" = "jackett-fork-ci" }
           $parts = $latest.tag_name.TrimStart('v').Split('.')
