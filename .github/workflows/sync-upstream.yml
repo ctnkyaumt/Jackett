@@ -91,10 +91,34 @@ jobs:
 
       - name: Build Jackett (win-x64)
         run: |
-          dotnet publish src/Jackett.Server/Jackett.Server.csproj -c Release -f net9.0 -r win-x64 --self-contained true -p:Version=${{ env.FULL_VERSION }} -o ./publish-win
-          dotnet publish src/Jackett.Tray/Jackett.Tray.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ env.FULL_VERSION }} -o ./publish-win
-          dotnet publish src/Jackett.Service/Jackett.Service.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ env.FULL_VERSION }} -o ./publish-win
-          dotnet publish src/Jackett.Updater/Jackett.Updater.csproj -c Release -f net9.0 -r win-x64 --self-contained true -p:Version=${{ env.FULL_VERSION }} -o ./publish-win
+          dotnet publish src/Jackett.Server/Jackett.Server.csproj -c Release -f net9.0 -r win-x64 --self-contained true -p:Version=${{ env.FULL_VERSION }} -o ./pub/Server
+          dotnet publish src/Jackett.Tray/Jackett.Tray.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ env.FULL_VERSION }} -o ./pub/Tray
+          dotnet publish src/Jackett.Service/Jackett.Service.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ env.FULL_VERSION }} -o ./pub/Service
+          dotnet publish src/Jackett.Updater/Jackett.Updater.csproj -c Release -f net9.0 -r win-x64 --self-contained true -p:Version=${{ env.FULL_VERSION }} -o ./pub/Updater
+
+      # Mirror upstream's azure-pipelines.yml packaging: Server output is the base; Updater/Service
+      # contribute only their own executables; Tray overwrites 3 Windows-specific DLLs and otherwise
+      # only fills gaps. Publishing all projects into ONE folder (the old way) let Tray/Updater
+      # clobber the server's ASP.NET Core 9 shared-framework DLLs with the 2.3.x netstandard
+      # packages Jackett.Common references (Microsoft.AspNetCore.Http/WebUtilities) -> Jackett
+      # crashed at startup with FileNotFoundException Microsoft.AspNetCore.Http 9.0.0.0 (v0.24.2252).
+      - name: Merge publish outputs (Server wins conflicts)
+        run: |
+          New-Item -ItemType Directory publish-win | Out-Null
+          Copy-Item ./pub/Server/* publish-win -Recurse
+          Copy-Item ./pub/Updater/JackettUpdater* publish-win
+          foreach ($dll in "System.Drawing.dll","System.Security.Cryptography.ProtectedData.dll","WindowsBase.dll") {
+              if (Test-Path "./pub/Tray/$dll") { Copy-Item "./pub/Tray/$dll" publish-win -Force }
+          }
+          Get-ChildItem ./pub/Tray -File | Where-Object { -not (Test-Path (Join-Path publish-win $_.Name)) } | Copy-Item -Destination publish-win
+          Copy-Item ./pub/Service/JackettService* publish-win
+
+          # Guard against regression: the server's shared-framework DLLs must be 9.x, not the
+          # 2.3.x netstandard package versions.
+          foreach ($dll in "Microsoft.AspNetCore.Http.dll","Microsoft.AspNetCore.WebUtilities.dll") {
+              $v = [System.Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path "publish-win/$dll")).ProductVersion
+              if ($v -notmatch '^9\.') { throw "$dll is $v - expected 9.x. Packaging is broken." }
+          }
 
       # Build the nodriver-based Cloudflare solver (embeddable Python + nodriver + aiohttp) and
       # ship it inside the Jackett binaries so it installs alongside Jackett.
