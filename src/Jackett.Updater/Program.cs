@@ -403,6 +403,7 @@ namespace Jackett.Updater
                 "Definitions/elitehd.yml",
                 "Definitions/elitetorrent-biz.yml",
                 "Definitions/elitetorrent-pl.yml",
+                "Definitions/elitetorrent-wf.yml",
                 "Definitions/elittracker.yml",
                 "Definitions/emmidtracker.yml",
                 "Definitions/emtrek.yml",
@@ -689,6 +690,7 @@ namespace Jackett.Updater
                 "Definitions/qctorrent.yml",
                 "Definitions/qxr.yml",
                 "Definitions/racing4everyone.yml", // switch to *-API #12870 #8682
+                "Definitions/rain.yml",
                 "Definitions/rapidetracker.yml",
                 "Definitions/rapidzona.yml",
                 "Definitions/rarbg.yml", // migrated to C#
@@ -704,6 +706,7 @@ namespace Jackett.Updater
                 "Definitions/rgu.yml",
                 "Definitions/rmhd.yml",
                 "Definitions/rns.yml", // site merged with audiobooktorrents
+                "Definitions/rockbox.yml",
                 "Definitions/rockhardlossless.yml",
                 "Definitions/rodvd.yml",
                 "Definitions/rofd.yml",
@@ -714,6 +717,7 @@ namespace Jackett.Updater
                 "Definitions/rptorrents-api.yml", // renamed to rptscene-api
                 "Definitions/rptscene.yml",
                 "Definitions/rptscene-api.yml", // changed engine, new indexer rptscene #5368
+                "Definitions/runtheframes-api.yml",
                 "Definitions/rus-media.yml",
                 "Definitions/satclubbing.yml",
                 "Definitions/scenefz.yml", // migrated to C# XtremeZone base tracker
@@ -822,6 +826,7 @@ namespace Jackett.Updater
                 "Definitions/torrentkim.yml",
                 "Definitions/torrentland.yml",
                 "Definitions/torrentland-api.yml",
+                "Definitions/torrentleech-pl.yml",
                 "Definitions/torrentmax.yml",
                 "Definitions/torrentparadise.yml",
                 "Definitions/torrentproject.yml",
