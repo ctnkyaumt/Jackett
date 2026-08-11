@@ -12,19 +12,21 @@ using static Jackett.Common.Models.IndexerConfig.ConfigurationData;
 namespace Jackett.Common.Indexers.Definitions
 {
     [ExcludeFromCodeCoverage]
-    public class DesiGaane : GazelleTracker
+    public class Simurg : GazelleTracker
     {
-        public override string Id => "desigaane";
-        public override string Name => "DesiGaane";
-        public override string Description => "DesiGaane is a Private Torrent Tracker for DESI MUSIC";
-        public override string SiteLink { get; protected set; } = "https://desigaane.rocks/";
+        public override string Id => "simurg";
+        public override string Name => "Simurg";
+        public override string Description => "Simurg is a Private Torrent Tracker for EBOOKS and AUDIOBOOKS";
+        public override string SiteLink { get; protected set; } = "https://simurg.world/";
 
         public override string Language => "en-US";
         public override string Type => "private";
 
         public override TorznabCapabilities TorznabCaps => SetCapabilities();
         protected override int ApiKeyLength => 116;
-        public DesiGaane(IIndexerConfigurationService configService, WebClient wc, Logger l, IProtectionService ps,
+        protected override string AuthorizationFormat => "token {0}";
+
+        public Simurg(IIndexerConfigurationService configService, WebClient wc, Logger l, IProtectionService ps,
                             ICacheService cs)
             : base(configService: configService,
                    client: wc,
@@ -41,7 +43,9 @@ namespace Jackett.Common.Indexers.Definitions
         {
             var caps = new TorznabCapabilities();
 
-            caps.Categories.AddCategoryMapping(1, TorznabCatType.Audio, "Music");
+            caps.Categories.AddCategoryMapping(3, TorznabCatType.BooksEBook, "E-Books");
+            caps.Categories.AddCategoryMapping(4, TorznabCatType.AudioAudiobook, "Audiobooks");
+            caps.Categories.AddCategoryMapping(7, TorznabCatType.BooksComics, "Comics");
 
             return caps;
         }
