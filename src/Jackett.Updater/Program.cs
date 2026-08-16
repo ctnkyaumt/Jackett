@@ -554,6 +554,7 @@ namespace Jackett.Updater
                 "Definitions/kinonavse100.yml",
                 "Definitions/kisssub.yml",
                 "Definitions/knaben.yml", // migrated to C# API
+                "Definitions/kunlun.yml",
                 "Definitions/lacale-api.yml",
                 "Definitions/laidbackmanor.yml",
                 "Definitions/lapausetorrents.yml",
@@ -653,6 +654,7 @@ namespace Jackett.Updater
                 "Definitions/partis.yml",
                 "Definitions/passionetorrent.yml",
                 "Definitions/peerjunkies.yml",
+                "Definitions/pier720.yml",
                 "Definitions/piratadigital.yml",
                 "Definitions/piratbit.yml",
                 "Definitions/piratbitl.yml",
@@ -673,7 +675,6 @@ namespace Jackett.Updater
                 "Definitions/pornorip.yml",
                 "Definitions/pornoslab.yml",
                 "Definitions/pornotor.yml",
-                "Definitions/pornxlab.yml",
                 "Definitions/portugas.yml", // switch to *-API #13542
                 "Definitions/potuk.yml",
                 "Definitions/privatesilverscreen-api.yml",
@@ -726,6 +727,7 @@ namespace Jackett.Updater
                 "Definitions/scenelinks.yml",
                 "Definitions/scenepalace.yml",
                 "Definitions/scenereactor.yml",
+                "Definitions/scenetime.yml", // switch to *-API #14878 #16719
                 "Definitions/scenexpress.yml",
                 "Definitions/sdbits.yml",
                 "Definitions/sdkino.yml",
