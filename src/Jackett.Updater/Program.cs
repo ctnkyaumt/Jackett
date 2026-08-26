@@ -288,6 +288,7 @@ namespace Jackett.Updater
                 "Definitions/at12project.yml",
                 "Definitions/audiobookbay.yml", // migrated to C#
                 "Definitions/audiobooktorrents.yml", // renamed to abtorrents
+                "Definitions/aura4k-api.yml",
                 "Definitions/avg.yml",
                 "Definitions/awesomehd.yml", // migrated to C#
                 "Definitions/axeltorrents.yml",
@@ -680,6 +681,7 @@ namespace Jackett.Updater
                 "Definitions/prostylex.yml",
                 "Definitions/ps4-torrent.yml",
                 "Definitions/pt99.yml",
+                "Definitions/ptcdy.yml",
                 "Definitions/ptchina.yml",
                 "Definitions/ptlsp.yml",
                 "Definitions/ptmsg.yml",
@@ -775,6 +777,7 @@ namespace Jackett.Updater
                 "Definitions/tazmaniaden.yml",
                 "Definitions/tbplus.yml",
                 "Definitions/tehconnection.yml",
+                "Definitions/tekno3d.yml",
                 "Definitions/tellytorrent-api.yml",
                 "Definitions/tellytorrent.yml", // switch to *-API #8682
                 "Definitions/tenyardtracker.yml", // to be migrated to c#, #795
