@@ -769,6 +769,7 @@ namespace Jackett.Updater
                 "Definitions/sportscraze.yml",
                 "Definitions/sugoimusic.yml",
                 "Definitions/sukebei-pantsu.yml",
+                "Definitions/sunnypt.yml",
                 "Definitions/swarmazon.yml", //  switched to *-API #13725
                 "Definitions/t411.yml",
                 "Definitions/t411v2.yml",
@@ -883,7 +884,7 @@ namespace Jackett.Updater
                 "Definitions/twisted-music.yml",
                 "Definitions/u-torrents.yml",
                 "Definitions/uhd-heaven.yml",
-                "Definitions/uhdbits",
+                "Definitions/uhdbits.yml",
                 "Definitions/uhdtorrent.yml",
                 "Definitions/ultimategamerclub.yml",
                 "Definitions/ultra-hd.yml",
