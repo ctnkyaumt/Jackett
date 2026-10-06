@@ -65,8 +65,7 @@ namespace Jackett.Common.Indexers.Definitions
                    configData: new ConfigurationData())
         {
             configData.AddDynamic("flaresolverr", new DisplayInfoConfigurationItem("FlareSolverr", "This site may use Cloudflare DDoS Protection, therefore Jackett requires <a href=\"https://github.com/Jackett/Jackett#configuring-flaresolverr\" target=\"_blank\">FlareSolverr</a> to access it."));
-            // avoid Cloudflare too many requests limiter
-            webclient.requestDelay = 2.1;
+            webclient.requestDelay = 0.5;
             webclient.EmulateBrowser = false;
         }
 
@@ -128,7 +127,7 @@ namespace Jackett.Common.Indexers.Definitions
 
                 var items = new List<Wolfmax4KItem>();
                 foreach (var card in dom.QuerySelectorAll("article.wolf-card"))
-                    items.AddRange(await ParseCardAsync(card, query));
+                    items.AddRange(await ParseCardAsync(card, NeedsAllEpisodes(card, query)));
 
                 return items.Select(item => ExtractReleaseInfo(item, query)).ToList()
                             .Where(x => x != null);
@@ -141,7 +140,19 @@ namespace Jackett.Common.Indexers.Definitions
             return new List<ReleaseInfo>();
         }
 
-        private async Task<IEnumerable<Wolfmax4KItem>> ParseCardAsync(IElement card, TorznabQuery query)
+        private static bool NeedsAllEpisodes(IElement card, TorznabQuery query)
+        {
+            // the card of a tv show only has the last episodes, the rest are hidden behind "Ver los N episodios restantes"
+            if (card.QuerySelector("details[data-wolf-episodes]") == null || query.SearchTerm.IsNullOrWhiteSpace() || query.IsMovieSearch)
+                return false;
+
+            // skip the seasons that will be filtered anyway
+            var title = card.QuerySelector("a.wolf-card-main")?.TextContent ?? "";
+            var cardSeason = Regex.Match(title, @"(\d+)ª\s+Temporada");
+            return !query.Season.HasValue || !cardSeason.Success || int.Parse(cardSeason.Groups[1].Value) == query.Season;
+        }
+
+        private async Task<IEnumerable<Wolfmax4KItem>> ParseCardAsync(IElement card, bool fetchAllEpisodes)
         {
             // <a class="wolf-card-main" href="/serie/86a2xh">Preacher - 1ª Temporada</a>
             var mainLink = card.QuerySelector("a.wolf-card-main");
@@ -152,27 +163,19 @@ namespace Jackett.Common.Indexers.Definitions
             var title = mainLink.TextContent.Trim().TrimEnd('.');
             var imagePath = card.QuerySelector(".wolf-card-poster img")?.GetAttribute("data-original");
             var image = imagePath.IsNotNullOrWhiteSpace() ? new Uri(new Uri(SiteLink), imagePath).AbsoluteUri : null;
-            // <time datetime="2018-07-03">03/07/2018</time>
-            var publishDate = ParseDate(card.QuerySelector(".wolf-card-date time")?.GetAttribute("datetime"), "yyyy-MM-dd");
+            // <time datetime="2018-07-03T12:24:16Z">03/07/2018</time>
+            var publishDate = ParseDate(card.QuerySelector(".wolf-card-date time")?.GetAttribute("datetime"));
 
-            // the card of a tv show only has the last episode, all of them are in the details page
-            if (!detailsPath.StartsWith("/pelicula/") && query.SearchTerm.IsNotNullOrWhiteSpace())
-            {
-                // each details page is one more request, skip the ones that will be filtered anyway
-                var cardSeason = Regex.Match(title, @"(\d+)ª\s+Temporada");
-                if (query.IsMovieSearch ||
-                    (query.Season.HasValue && cardSeason.Success && int.Parse(cardSeason.Groups[1].Value) != query.Season))
-                    return Enumerable.Empty<Wolfmax4KItem>();
-
-                return await ParseEpisodesAsync(detailsPath, title, image);
-            }
+            var files = card.QuerySelectorAll("li.wolf-card-file").ToList();
+            if (fetchAllEpisodes)
+                files = await GetAllEpisodesAsync(card.QuerySelector("details[data-wolf-episodes]").GetAttribute("data-wolf-episodes")) ?? files;
 
             // <li class="wolf-card-file">
             //   <a class="wolf-card-format" href="/serie/episodio/86a2xh"><strong>Episodio 1x10 -</strong><span>HDTV</span></a>
             //   <span class="wolf-card-size">614,84 MB</span>
             //   <button class="protected-download" data-content-code="pkghcn" data-tabla="series">
             // movies only have the quality: <strong>4K</strong>
-            return card.QuerySelectorAll("li.wolf-card-file").Select(file =>
+            return files.Select(file =>
             {
                 var format = file.QuerySelector(".wolf-card-format");
                 var button = file.QuerySelector("button.protected-download");
@@ -191,35 +194,32 @@ namespace Jackett.Common.Indexers.Definitions
             }).ToList();
         }
 
-        private async Task<IEnumerable<Wolfmax4KItem>> ParseEpisodesAsync(string detailsPath, string title, string image)
+        private async Task<List<IElement>> GetAllEpisodesAsync(string apiPath)
         {
-            var result = await RequestWithCookiesAndRetryAsync(new Uri(new Uri(SiteLink), detailsPath).AbsoluteUri, referer: SiteLink);
+            // the site loads the hidden episodes of a card with its own api, without "after" it returns all of them
+            // <details data-wolf-episodes="/api/episodios?type=serie&id=715963&after=716195&calidad=">
+            // {"success":true,"html":"<li class=\"wolf-card-file\">...</li>...","next_after":null}
+            var apiUrl = new Uri(new Uri(SiteLink), Regex.Replace(apiPath, @"&after=\d+", "")).AbsoluteUri;
+            var headers = new Dictionary<string, string> { { "X-Requested-With", "XMLHttpRequest" } };
+            var files = new List<IElement>();
             var parser = new HtmlParser();
-            using var dom = parser.ParseDocument(result.ContentString);
 
-            // <div class="wolf-episode">
-            //   <a href="/serie/episodio/8fmmgy">1x01 -</a>
-            //   <span class="wolf-episode-date">30/12/2016</span>
-            //   <span class="wolf-episode-format">HDTV<span class="wolf-episode-size">731,27 MB</span></span>
-            //   <button class="protected-download" data-content-code="pje4r3" data-tabla="series">
-            return dom.QuerySelectorAll("div.wolf-episode").Select(episode =>
+            for (var after = ""; after != null;)
             {
-                var link = episode.QuerySelector("a");
-                var button = episode.QuerySelector("button.protected-download");
-                return new Wolfmax4KItem
+                var result = await RequestWithCookiesAndRetryAsync(apiUrl + after, referer: SiteLink, headers: headers);
+                var json = result.Status == HttpStatusCode.OK ? JObject.Parse(result.ContentString) : null;
+                if (json == null || !json.Value<bool>("success"))
                 {
-                    Title = title,
-                    DetailsPath = link?.GetAttribute("href") ?? detailsPath,
-                    EpisodeText = link?.TextContent,
-                    // the first child is the quality text, the second one the size
-                    Quality = episode.QuerySelector(".wolf-episode-format")?.FirstChild?.TextContent.Trim(),
-                    Size = episode.QuerySelector(".wolf-episode-size")?.TextContent,
-                    PublishDate = ParseDate(episode.QuerySelector(".wolf-episode-date")?.TextContent, "dd/MM/yyyy"),
-                    Image = image,
-                    ContentCode = button?.GetAttribute("data-content-code"),
-                    Tabla = button?.GetAttribute("data-tabla")
-                };
-            }).ToList();
+                    logger.Warn($"{Id}: could not load the episodes from {apiUrl}, only the visible ones will be returned");
+                    return null;
+                }
+
+                files.AddRange(parser.ParseDocument(json.Value<string>("html")).QuerySelectorAll("li.wolf-card-file"));
+                var nextAfter = json.Value<string>("next_after");
+                after = nextAfter.IsNullOrWhiteSpace() ? null : "&after=" + nextAfter;
+            }
+
+            return files;
         }
 
         public override async Task<byte[]> Download(Uri link)
@@ -233,13 +233,30 @@ namespace Jackett.Common.Indexers.Definitions
                 tabla = parameters["tabla"]
             });
             var challenge = generate.Value<string>("challenge");
+            var pow = generate["pow"];
+            if (pow?.Value<int>("version") != 2)
+                throw new Exception($"Error, the proof of work version {pow?.Value<string>("version")} of the site is not supported.");
 
-            var validate = await DownloadApiRequestAsync(new
+            var nonces = ComputeProofOfWork(challenge, pow.Value<int>("rounds"), pow.Value<int>("difficulty"));
+
+            await Task.Delay(pow.Value<int>("min_duration_ms"));
+
+            JObject validate = null;
+            for (var attempt = 0; attempt < 3; attempt++)
             {
-                action = "validate",
-                challenge,
-                nonce = ComputeProofOfWork(challenge)
-            });
+                validate = await DownloadApiRequestAsync(new
+                {
+                    action = "validate",
+                    challenge,
+                    nonces
+                });
+                if (validate.Value<string>("status") != "pow_pending")
+                    break;
+
+                await Task.Delay(validate.Value<int>("retry_after_ms"));
+            }
+            if (validate.Value<string>("status") == "pow_pending")
+                throw new Exception("Error, the site did not accept the proof of work, try again later.");
 
             // download_url is protocol relative, eg: //wolfmax4k.com/torrents/peliculas/xxx.torrent
             var torrentUrl = new Uri(new Uri(SiteLink), validate.Value<string>("download_url"));
@@ -285,7 +302,7 @@ namespace Jackett.Common.Indexers.Definitions
                 rawbody: JsonConvert.SerializeObject(body));
 
             var json = JObject.Parse(result.ContentString);
-            if (json.Value<bool>("success"))
+            if (json.Value<bool>("success") || json.Value<string>("status") == "pow_pending")
                 return json;
 
             throw new Exception(json.Value<string>("status") switch
@@ -296,16 +313,26 @@ namespace Jackett.Common.Indexers.Definitions
             });
         }
 
-        private static int ComputeProofOfWork(string challenge)
+        private static List<int> ComputeProofOfWork(string challenge, int rounds, int difficulty)
         {
-            // same as the site javascript: the sha256 of challenge + nonce must start with "000" in hex
+            // same as the site javascript: for each round the sha256 of challenge:round:nonce must start with "difficulty" zeros in hex
+            var prefix = new string('0', difficulty);
+            var nonces = new List<int>();
             using var sha256 = SHA256.Create();
-            for (var nonce = 0; ; nonce++)
+            for (var round = 0; round < rounds; round++)
             {
-                var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(challenge + nonce));
-                if (hash[0] == 0 && hash[1] < 0x10)
-                    return nonce;
+                for (var nonce = 0; ; nonce++)
+                {
+                    var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes($"{challenge}:{round}:{nonce}"));
+                    if (BitConverter.ToString(hash).Replace("-", "").StartsWith(prefix))
+                    {
+                        nonces.Add(nonce);
+                        break;
+                    }
+                }
             }
+
+            return nonces;
         }
 
         // Thanks to https://stackoverflow.com/a/5454692/2078070 !!!
@@ -584,24 +611,32 @@ namespace Jackett.Common.Indexers.Definitions
 
         private string ParseSeasonAndEpisode(string episodeText)
         {
-            // Episodio 1x10 - / 2x01 al 06. / 4x07
-            var match = Regex.Match(episodeText ?? "", @"(\d+)x(\d+)(\s*al\s*(\d+))?", RegexOptions.IgnoreCase);
+            var text = (episodeText ?? "").Trim();
+            var match = text switch
+            {
+                // Episodio 2x01 al 06. / Episodio 4x01 al 4x08.
+                _ when Regex.Match(text, @"(\d+)x(\d+) al (?:\d+x)?(\d+)", RegexOptions.IgnoreCase) is { Success: true } range => range,
+                // Episodio 3x07 - 3x08. / Episodio 1x05 - 06 - 07 - 08.
+                _ when Regex.Match(text, @"(\d+)x(\d+)(?: - (?:\d+x)?(\d+))+\.?$", RegexOptions.IgnoreCase) is { Success: true } list => list,
+                // Episodio 1x10 - / Episodio 5x24 - Ahora o nunca.
+                _ => Regex.Match(text, @"(\d+)x(\d+)", RegexOptions.IgnoreCase)
+            };
             if (!match.Success)
             {
                 return "";
             }
 
             var result = "S" + match.Groups[1].Value.PadLeft(2, '0') + "E" + match.Groups[2].Value.PadLeft(2, '0');
-            if (match.Groups[4].Success)
+            if (match.Groups[3].Success)
             {
-                result += "-E" + match.Groups[4].Value.PadLeft(2, '0');
+                result += "-E" + match.Groups[3].Value.PadLeft(2, '0');
             }
 
             return result;
         }
 
-        private static DateTime? ParseDate(string date, string format) =>
-            DateTime.TryParseExact(date?.Trim(), format, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+        private static DateTime? ParseDate(string date) =>
+            DateTime.TryParse(date?.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed)
                 ? parsed
                 : null;
 

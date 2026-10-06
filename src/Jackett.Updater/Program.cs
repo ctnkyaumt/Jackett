@@ -803,6 +803,7 @@ namespace Jackett.Updater
                 "Definitions/theleachzone.yml", // switch to *-API #11185
                 "Definitions/themoviecave.yml",
                 "Definitions/thepiratedship.yml",
+                "Definitions/theparadiese.yml",
                 "Definitions/therebels-api.yml",
                 "Definitions/theresurrection.yml",
                 "Definitions/thesceneplace.yml",
@@ -846,6 +847,7 @@ namespace Jackett.Updater
                 "Definitions/torrentland.yml",
                 "Definitions/torrentleech-pl.yml",
                 "Definitions/torrentmax.yml",
+                "Definitions/torrentoyunindir.yml",
                 "Definitions/torrentparadise.yml",
                 "Definitions/torrentproject.yml",
                 "Definitions/torrentqq.yml",
@@ -908,6 +910,7 @@ namespace Jackett.Updater
                 "Definitions/unleashthecartoons.yml",
                 "Definitions/uploads.yml",
                 "Definitions/utorrents.yml", // same as SzeneFZ now
+                "Definitions/u2p.yml",
                 "Definitions/vanila.yml",
                 "Definitions/vhstapes.yml",
                 "Definitions/videoteka.yml",
