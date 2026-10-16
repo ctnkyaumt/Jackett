@@ -1,18 +1,20 @@
 ---
-id: sportz247
+id: racing4us
 replaces:
   - tsdb
   - f1gp
-name: Sportz247
-description: "Sportz247 is a Private Torrent Tracker for SPORTS"
+  - sportz247
+name: Racing4us
+description: "Racing4us is a Private Torrent Tracker for SPORTS"
 language: en-US
 type: private
 encoding: UTF-8
 links:
-  - https://sportz247.bar/
+  - https://racing4us.site/
 legacylinks:
   - https://f1gp.site/
   - https://f1gp.xyz/
+  - https://sportz247.bar/
 
 caps:
   categorymappings:
@@ -95,7 +97,7 @@ settings:
     label: Password
   - name: freeleech
     type: checkbox
-    label: Search freeleech only
+    label: Filter freeleech only
     default: false
   - name: sort
     type: select
@@ -104,7 +106,6 @@ settings:
     options:
       3: created
       5: seeders
-      4: size
       2: title
   - name: type
     type: select
@@ -132,14 +133,14 @@ login:
 
 search:
   paths:
-    # https://sportz247.bar/index.php?page=torrents&search=&category=0&active=0
+    # https://racing4us.site/index.php?page=torrents&search=&category=0&active=0
     - path: index.php
   inputs:
     page: torrents
     search: "{{ .Keywords }}"
     category: "{{ range .Categories }}{{.}};{{end}}"
-    # 0 filename, 1 file&descr, 2 descr, 3 uploaders, 5 gold, 6 silver, 7 bronze
-    options: "{{ if .Config.freeleech }}5{{ else }}0{{ end }}"
+    # 0 filename, 1 file&descr, 2 descr, 3 uploaders
+    options: 0
     # 0 all, 1 active only, 2 dead only
     active: 0
     order: "{{ .Config.sort }}"
@@ -150,7 +151,7 @@ search:
       args: ["\\.", " "]
 
   rows:
-    selector: table.lista > tbody > tr:has(a[href^="download.php?id="])
+    selector: "table.lista > tbody > tr:has(a[href^=\"download.php?id=\"]){{ if .Config.freeleech }}:has(img[src=\"images/freeleech.gif\"]){{ else }}{{ end }}"
 
   fields:
     category:
@@ -174,25 +175,22 @@ search:
         - name: regexp
           args: src=([^\s]+)
     size:
-      selector: td:nth-child(10)
+      text: 2GB
     date:
       # auto adjusted by site account profile
-      selector: td:nth-child(5)
+      selector: td:nth-child(4)
       filters:
         - name: dateparse
           args: "dd/MM/yyyy"
     seeders:
-      selector: td:nth-child(6)
+      selector: td:nth-child(5)
     leechers:
-      selector: td:nth-child(7)
+      selector: td:nth-child(6)
     grabs:
-      selector: td:nth-child(8)
+      selector: td:nth-child(7)
     downloadvolumefactor:
       case:
         img[src="images/freeleech.gif"]: 0
-        img[src="images/gold.gif"]: 0
-        img[src="images/silver.gif"]: 0.5
-        img[src="images/bronze.gif"]: 0.75
         "*": 1
     uploadvolumefactor:
       text: 1
@@ -201,4 +199,4 @@ search:
     minimumseedtime:
       # 5 days (as seconds = 5 x 24 x 60 x 60)
       text: 432000
-#  xbtitFM v4.3.00
+#  xbtitFM v4.2.13

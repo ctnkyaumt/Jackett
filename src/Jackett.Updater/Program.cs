@@ -259,6 +259,7 @@ namespace Jackett.Updater
                 "Definitions/adbt.yml",
                 "Definitions/afun.yml",
                 "Definitions/aither.yml", // switch to *-API #8682
+                "Definitions/alabala.yml", // switch to *-API
                 "Definitions/alein.yml",
                 "Definitions/alexfilm.yml",
                 "Definitions/alleenretail.yml",
@@ -405,6 +406,7 @@ namespace Jackett.Updater
                 "Definitions/dxdhd.yml",
                 "Definitions/ebooks-shares.yml",
                 "Definitions/ebookparadijs.yml",
+                "Definitions/echelonhd-api.yml",
                 "Definitions/efectodoppler.yml",
                 "Definitions/eggmeon.yml",
                 "Definitions/elitehd.yml",
@@ -465,6 +467,7 @@ namespace Jackett.Updater
                 "Definitions/gainbound.yml",
                 "Definitions/galeriens.yml",
                 "Definitions/gamera.yml",
+                "Definitions/gamestorrents.yml",
                 "Definitions/gay-torrentsorg.yml",
                 "Definitions/gdf76.yml",
                 "Definitions/generationfree.yml", // switch to unit3d api #12982
@@ -675,6 +678,7 @@ namespace Jackett.Updater
                 "Definitions/plusteca.yml",
                 "Definitions/polishsource.yml",
                 "Definitions/polishtracker.yml",
+                "Definitions/polskie-torrenty.yml",
                 "Definitions/pornbay.yml",
                 "Definitions/pornbits.yml",
                 "Definitions/pornbytes-api.yml",
@@ -777,6 +781,7 @@ namespace Jackett.Updater
                 "Definitions/spidertk.yml",
                 "Definitions/sporthd.yml",
                 "Definitions/sportscraze.yml",
+                "Definitions/sportz247.yml", // renamed to racing4us
                 "Definitions/sugoimusic.yml",
                 "Definitions/sukebei-pantsu.yml",
                 "Definitions/sunnypt.yml",
