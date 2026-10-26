@@ -322,6 +322,7 @@ namespace Jackett.Updater
                 "Definitions/bitstream.yml",
                 "Definitions/bittorrentam.yml",
                 "Definitions/blubits.yml",
+                "Definitions/bluebird.yml",
                 "Definitions/bluesbrothers.yml",
                 "Definitions/blutopia.yml", // switch to *-API #8682
                 "Definitions/bolly-api.yml",
@@ -697,10 +698,13 @@ namespace Jackett.Updater
                 "Definitions/pt99.yml",
                 "Definitions/ptcdy.yml",
                 "Definitions/ptchina.yml",
+                "Definitions/ptlao.yml",
+                "Definitions/ptlao-api.yml",
                 "Definitions/ptlsp.yml",
                 "Definitions/ptmsg.yml",
                 "Definitions/ptorrent.yml", // renamed to pornxlab
                 "Definitions/ptvicomo.yml",
+                "Definitions/ptying.yml",
                 "Definitions/purovicio.yml",
                 "Definitions/puurhollands.yml",
                 "Definitions/qbite.yml",
@@ -824,6 +828,7 @@ namespace Jackett.Updater
                 "Definitions/tjangto.yml",
                 "Definitions/tntfork.yml",
                 "Definitions/tntvillage.yml",
+                "Definitions/tocashare.yml", // renamed to sapibr
                 "Definitions/tokyopt.yml",
                 "Definitions/toonsforme.yml",
                 "Definitions/topnow.yml",
@@ -928,6 +933,7 @@ namespace Jackett.Updater
                 "Definitions/wdt.yml",
                 "Definitions/witchhunter.yml",
                 "Definitions/woot.yml",
+                "Definitions/world-of-tomorrow.yml", // switch to *-API #16903
                 "Definitions/worldofp2p.yml",
                 "Definitions/worldwidetorrents.yml",
                 "Definitions/wukong.yml",
