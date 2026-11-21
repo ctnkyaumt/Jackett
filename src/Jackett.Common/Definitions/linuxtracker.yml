@@ -14,7 +14,7 @@ caps:
     - {id: 2002, cat: PC/ISO, desc: "4MLinux"}
     - {id: 17, cat: PC/ISO, desc: "Abora OS"}
     - {id: 13, cat: PC/ISO, desc: "Absolute"}
-    - {id: 2311, cat: PC/ISO, desc: "AlmaLinux"}
+    - {id: 2311, cat: PC/ISO, desc: "AlmaLinux OS"}
     - {id: 2003, cat: PC/ISO, desc: "Alpine Linux"}
     - {id: 2004, cat: PC/ISO, desc: "ALT Linux"}
     - {id: 2292, cat: PC/ISO, desc: "Anarchy Linux"}
@@ -39,6 +39,7 @@ caps:
     - {id: 2012, cat: PC/ISO, desc: "AV Linux"}
     - {id: 1231, cat: PC/ISO, desc: "Backbox"}
     - {id: 2219, cat: PC/ISO, desc: "BackSlash Linux"}
+    - {id: 43, cat: PC/ISO, desc: "Basalt Linux"}
     - {id: 2237, cat: PC/ISO, desc: "Batocera Linux"}
     - {id: 2252, cat: PC/ISO, desc: "BBQLinux"}
     - {id: 2272, cat: PC/ISO, desc: "BeeFree OS"}
@@ -62,6 +63,7 @@ caps:
     - {id: 2026, cat: PC/ISO, desc: "Cae"}
     - {id: 1220, cat: PC/ISO, desc: "Caine"}
     - {id: 2028, cat: PC/ISO, desc: "Calculate Linux"}
+    - {id: 36, cat: PC/ISO, desc: "CarotOS"}
     - {id: 27, cat: PC/ISO, desc: "CatOS"}
     - {id: 102, cat: PC/ISO, desc: "CentOS"}
     - {id: 1216, cat: PC/ISO, desc: "Chakra"}
@@ -70,6 +72,7 @@ caps:
     - {id: 2264, cat: PC/ISO, desc: "ClearOS"}
     - {id: 107, cat: PC/ISO, desc: "Clonezilla"}
     - {id: 2248, cat: PC/ISO, desc: "ClonOS"}
+    - {id: 44, cat: PC/ISO, desc: "CloudLinux OS"}
     - {id: 2257, cat: PC/ISO, desc: "Condres OS"}
     - {id: 2036, cat: PC/ISO, desc: "Connochaet"}
     - {id: 2037, cat: PC/ISO, desc: "Container Linux"}
@@ -129,6 +132,7 @@ caps:
     - {id: 206, cat: PC/ISO, desc: "Gentoo"}
     - {id: 2048, cat: PC/ISO, desc: "GhostBSD"}
     - {id: 210, cat: PC/ISO, desc: "Gnewsense"}
+    - {id: 47, cat: PC/ISO, desc: "GNU/Linux KDu"}
     - {id: 22, cat: PC/ISO, desc: "GNUSlashLinux"}
     - {id: 216, cat: PC/ISO, desc: "GoboLinux"}
     - {id: 1212, cat: PC/ISO, desc: "GParted"}
@@ -148,6 +152,7 @@ caps:
     - {id: 31, cat: PC/ISO, desc: "Hybrid-d77"}
     - {id: 2244, cat: PC/ISO, desc: "Hyperbola GNU"}
     - {id: 20, cat: PC/ISO, desc: "Infinity Linux"}
+    - {id: 45, cat: PC/ISO, desc: "InstantOS"}
     - {id: 252, cat: PC/ISO, desc: "IPFire"}
     - {id: 30, cat: PC/ISO, desc: "Kader⁴²"}
     - {id: 2294, cat: PC/ISO, desc: "Kaisen Linux"}
@@ -176,6 +181,7 @@ caps:
     - {id: 316, cat: PC/ISO, desc: "Livecd"}
     - {id: 1218, cat: PC/ISO, desc: "Lubuntu"}
     - {id: 2068, cat: PC/ISO, desc: "LXLE"}
+    - {id: 41, cat: PC/ISO, desc: "Lyra OS"}
     - {id: 2296, cat: PC/ISO, desc: "Mabox Linux"}
     - {id: 1228, cat: PC/ISO, desc: "Mageia"}
     - {id: 10, cat: PC/ISO, desc: "MagOS Linux"}
@@ -228,6 +234,7 @@ caps:
     - {id: 421, cat: PC/ISO, desc: "Partedmagic"}
     - {id: 422, cat: PC/ISO, desc: "Pcbsd"}
     - {id: 423, cat: PC/ISO, desc: "PCLinuxOS"}
+    - {id: 46, cat: PC/ISO, desc: "PelandukOS"}
     - {id: 429, cat: PC/ISO, desc: "Pentoo"}
     - {id: 430, cat: PC/ISO, desc: "Peppermint"}
     - {id: 432, cat: PC/ISO, desc: "Pfsense"}
@@ -274,6 +281,7 @@ caps:
     - {id: 2304, cat: PC/ISO, desc: "Security Onion"}
     - {id: 2119, cat: PC/ISO, desc: "SELKS"}
     - {id: 2250, cat: PC/ISO, desc: "Septor"}
+    - {id: 40, cat: PC/ISO, desc: "Shanios"}
     - {id: 489, cat: PC/ISO, desc: "SharkLinux"}
     - {id: 2121, cat: PC/ISO, desc: "Siduction"}
     - {id: 2122, cat: PC/ISO, desc: "Simplicity Linux"}
@@ -328,9 +336,11 @@ caps:
     - {id: 2149, cat: PC/ISO, desc: "Untangle NG Firewall"}
     - {id: 2173, cat: PC/ISO, desc: "Uruk GNU/Linux"}
     - {id: 2, cat: PC/ISO, desc: "VailuxOS"}
+    - {id: 38, cat: PC/ISO, desc: "Valtux OS"}
     - {id: 579, cat: PC/ISO, desc: "Vector"}
     - {id: 3, cat: PC/ISO, desc: "Ventoy"}
     - {id: 2282, cat: PC/ISO, desc: "Virage"}
+    - {id: 37, cat: PC/ISO, desc: "Vitalinux"}
     - {id: 2151, cat: PC/ISO, desc: "Void Linux"}
     - {id: 2152, cat: PC/ISO, desc: "Volumio"}
     - {id: 2153, cat: PC/ISO, desc: "Voyager Live"}
